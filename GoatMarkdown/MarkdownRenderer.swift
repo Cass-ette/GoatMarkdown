@@ -3,6 +3,7 @@ import SwiftUI
 struct MarkdownRenderer: View {
     let document: MarkdownDocument
     var theme: MarkdownTheme = MarkdownTheme()
+    var searchText: String = ""
 
     var body: some View {
         ScrollView {
@@ -14,6 +15,35 @@ struct MarkdownRenderer: View {
             .frame(maxWidth: theme.contentMaxWidth)
             .padding(theme.contentPadding)
             .textSelection(.enabled)
+        }
+    }
+
+    // MARK: - Inline Markdown
+
+    private func renderInlineMarkdown(_ text: String) -> AttributedString {
+        if var attributed = try? AttributedString(markdown: text) {
+            if !searchText.isEmpty {
+                highlightSearch(in: &attributed)
+            }
+            return attributed
+        }
+        var fallback = AttributedString(text)
+        if !searchText.isEmpty {
+            highlightSearch(in: &fallback)
+        }
+        return fallback
+    }
+
+    private func highlightSearch(in attributed: inout AttributedString) {
+        let plain = String(attributed.characters)
+        let lower = plain.lowercased()
+        let searchLower = searchText.lowercased()
+        var start = lower.startIndex
+        while start < lower.endIndex {
+            guard let range = lower.range(of: searchLower, range: start..<lower.endIndex) else { break }
+            let attrRange = Range(range, in: attributed)!
+            attributed[attrRange].backgroundColor = Color(nsColor: .findHighlightColor)
+            start = range.upperBound
         }
     }
 
@@ -117,21 +147,11 @@ struct MarkdownRenderer: View {
         }
     }
 
-    // MARK: - Inline Markdown
-
-    private func renderInlineMarkdown(_ text: String) -> AttributedString {
-        if let attributed = try? AttributedString(markdown: text) {
-            return attributed
-        }
-        return AttributedString(text)
-    }
-
     // MARK: - Table
 
     private func renderTable(headers: [String], alignments: [TableColumnAlignment], rows: [[String]]) -> some View {
         let colCount = headers.count
         return VStack(alignment: .leading, spacing: 0) {
-            // Header
             HStack(spacing: 0) {
                 ForEach(0..<colCount, id: \.self) { col in
                     Text(renderInlineMarkdown(headers[col]))
@@ -144,7 +164,6 @@ struct MarkdownRenderer: View {
             }
             .background(Color(nsColor: .controlBackgroundColor))
 
-            // Rows
             ForEach(0..<rows.count, id: \.self) { rowIdx in
                 HStack(spacing: 0) {
                     ForEach(0..<colCount, id: \.self) { col in

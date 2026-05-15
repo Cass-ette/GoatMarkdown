@@ -17,7 +17,11 @@ struct GoatMarkdownApp: App {
                 }
                 .onOpenURL { url in
                     hasHandledInitialURL = true
-                    state.handleExternalURL(url)
+                    if url.scheme == "file" {
+                        state.handleFileURL(url)
+                    } else {
+                        state.handleExternalURL(url)
+                    }
                 }
         }
         .windowStyle(.titleBar)

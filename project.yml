@@ -22,6 +22,16 @@ targets:
           - CFBundleURLName: com.cassette.GoatMarkdown
             CFBundleURLSchemes:
               - goatmarkdown
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: Markdown
+            CFBundleTypeRole: Viewer
+            LSItemContentTypes:
+              - net.daringfireball.markdown
+            CFBundleTypeExtensions:
+              - md
+              - markdown
+            NSExportableAs:
+              - net.daringfireball.markdown
   GoatMarkdownTests:
     type: bundle.unit-test
     platform: macOS

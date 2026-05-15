@@ -38,6 +38,18 @@ final class MarkdownReaderState {
         }
     }
 
+    func handleFileURL(_ url: URL) {
+        let path = url.path
+        var isDir: ObjCBool = false
+        FileManager.default.fileExists(atPath: path, isDirectory: &isDir)
+        if isDir.boolValue {
+            openFolder(url)
+        } else {
+            openFolder(url.deletingLastPathComponent())
+            selectFile(url)
+        }
+    }
+
     func handleExternalURL(_ url: URL) {
         guard url.scheme == "goatmarkdown" else { return }
         guard url.host == "open" else { return }

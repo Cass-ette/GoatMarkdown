@@ -3,6 +3,8 @@ import UniformTypeIdentifiers
 
 struct ContentView: View {
     @Bindable var state: MarkdownReaderState
+    @State private var searchText = ""
+    @State private var showSearch = false
 
     var body: some View {
         NavigationSplitView {
@@ -14,7 +16,41 @@ struct ContentView: View {
             .frame(minWidth: 200)
         } detail: {
             if let document = state.currentDocument {
-                MarkdownRenderer(document: document)
+                MarkdownRenderer(document: document, searchText: showSearch ? searchText : "")
+                    .overlay(alignment: .top) {
+                        if showSearch {
+                            HStack(spacing: 8) {
+                                Image(systemName: "magnifyingglass")
+                                    .foregroundStyle(.secondary)
+                                TextField("Search", text: $searchText)
+                                    .textFieldStyle(.plain)
+                                    .font(.body)
+                                if !searchText.isEmpty {
+                                    Button {
+                                        searchText = ""
+                                    } label: {
+                                        Image(systemName: "xmark.circle.fill")
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                                Button {
+                                    showSearch = false
+                                    searchText = ""
+                                } label: {
+                                    Image(systemName: "xmark")
+                                        .foregroundStyle(.secondary)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(.regularMaterial)
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                            .shadow(color: .black.opacity(0.1), radius: 4, y: 2)
+                            .padding()
+                        }
+                    }
             } else if state.isLoading {
                 ProgressView()
             } else {
@@ -26,6 +62,12 @@ struct ContentView: View {
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
                 Button {
+                    showSearch.toggle()
+                    if !showSearch { searchText = "" }
+                } label: {
+                    Label("Find", systemImage: showSearch ? "magnifyingglass.circle.fill" : "magnifyingglass")
+                }
+                Button {
                     openFilePanel()
                 } label: {
                     Label("Open File", systemImage: "doc.text")
@@ -36,6 +78,11 @@ struct ContentView: View {
                     Label("Open Folder", systemImage: "folder")
                 }
             }
+        }
+        .onKeyPress(.init("/")) {
+            guard state.currentDocument != nil else { return .ignored }
+            showSearch = true
+            return .handled
         }
     }
 
