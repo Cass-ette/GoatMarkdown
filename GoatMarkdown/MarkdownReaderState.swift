@@ -6,6 +6,8 @@ final class MarkdownReaderState {
     var selectedFileURL: URL?
     var currentDocument: MarkdownDocument?
     var isLoading = false
+    var showSearch = false
+    var searchText = ""
 
     private let scanner = MarkdownFileScanner(fileManager: .default)
     private let defaults = UserDefaults.standard
@@ -72,6 +74,11 @@ final class MarkdownReaderState {
             openFolder(parentDir)
             selectFile(fileURL)
         }
+    }
+
+    func toggleSearch() {
+        showSearch.toggle()
+        if !showSearch { searchText = "" }
     }
 
     func restoreLastSession() {

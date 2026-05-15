@@ -3,8 +3,6 @@ import UniformTypeIdentifiers
 
 struct ContentView: View {
     @Bindable var state: MarkdownReaderState
-    @State private var searchText = ""
-    @State private var showSearch = false
 
     var body: some View {
         NavigationSplitView {
@@ -16,18 +14,18 @@ struct ContentView: View {
             .frame(minWidth: 200)
         } detail: {
             if let document = state.currentDocument {
-                MarkdownRenderer(document: document, searchText: showSearch ? searchText : "")
+                MarkdownRenderer(document: document, searchText: state.showSearch ? state.searchText : "")
                     .overlay(alignment: .top) {
-                        if showSearch {
+                        if state.showSearch {
                             HStack(spacing: 8) {
                                 Image(systemName: "magnifyingglass")
                                     .foregroundStyle(.secondary)
-                                TextField("Search", text: $searchText)
+                                TextField("Search", text: $state.searchText)
                                     .textFieldStyle(.plain)
                                     .font(.body)
-                                if !searchText.isEmpty {
+                                if !state.searchText.isEmpty {
                                     Button {
-                                        searchText = ""
+                                        state.searchText = ""
                                     } label: {
                                         Image(systemName: "xmark.circle.fill")
                                             .foregroundStyle(.secondary)
@@ -35,8 +33,8 @@ struct ContentView: View {
                                     .buttonStyle(.plain)
                                 }
                                 Button {
-                                    showSearch = false
-                                    searchText = ""
+                                    state.showSearch = false
+                                    state.searchText = ""
                                 } label: {
                                     Image(systemName: "xmark")
                                         .foregroundStyle(.secondary)
@@ -62,10 +60,9 @@ struct ContentView: View {
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
                 Button {
-                    showSearch.toggle()
-                    if !showSearch { searchText = "" }
+                    state.toggleSearch()
                 } label: {
-                    Label("Find", systemImage: showSearch ? "magnifyingglass.circle.fill" : "magnifyingglass")
+                    Label("Find", systemImage: state.showSearch ? "magnifyingglass.circle.fill" : "magnifyingglass")
                 }
                 Button {
                     openFilePanel()
@@ -81,7 +78,7 @@ struct ContentView: View {
         }
         .onKeyPress(.init("/")) {
             guard state.currentDocument != nil else { return .ignored }
-            showSearch = true
+            state.showSearch = true
             return .handled
         }
     }
