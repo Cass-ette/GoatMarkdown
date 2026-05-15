@@ -14,9 +14,16 @@ struct FileBrowserSidebar: View {
                         .padding()
                 } else {
                     List(selection: $selectedFileURL) {
-                        FileNodeRow(node: tree, onSelect: onSelect)
+                        ForEach(tree.children) { child in
+                            FileNodeRow(node: child)
+                        }
                     }
                     .listStyle(.sidebar)
+                    .onChange(of: selectedFileURL) { _, newURL in
+                        if let newURL {
+                            onSelect(newURL)
+                        }
+                    }
                 }
             } else {
                 Text("Open a folder to start reading")
@@ -29,25 +36,19 @@ struct FileBrowserSidebar: View {
 
 struct FileNodeRow: View {
     let node: FileNode
-    let onSelect: (URL) -> Void
 
     var body: some View {
         if node.isDirectory {
             DisclosureGroup {
                 ForEach(node.children) { child in
-                    FileNodeRow(node: child, onSelect: onSelect)
+                    FileNodeRow(node: child)
                 }
             } label: {
                 Label(node.name, systemImage: "folder")
             }
         } else {
-            Button {
-                onSelect(node.url)
-            } label: {
-                Label(node.name, systemImage: "doc.text")
-            }
-            .buttonStyle(.plain)
-            .tag(node.url)
+            Label(node.name, systemImage: "doc.text")
+                .tag(node.url)
         }
     }
 }

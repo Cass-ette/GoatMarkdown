@@ -69,4 +69,57 @@ final class MarkdownParserTests: XCTestCase {
         XCTAssertEqual(document.blocks[3], .thematicBreak)
         XCTAssertEqual(document.blocks[4], .blockquote(text: "quote"))
     }
+
+    // MARK: - Table
+
+    func testParsesTable() throws {
+        let input = """
+        | Name | Age |
+        |------|-----|
+        | Alice | 30 |
+        | Bob | 25 |
+        """
+        let document = MarkdownParser.parse(input)
+        XCTAssertEqual(document.blocks.count, 1)
+        guard case .table(let headers, let alignments, let rows) = document.blocks[0] else {
+            XCTFail("Expected table block")
+            return
+        }
+        XCTAssertEqual(headers, ["Name", "Age"])
+        XCTAssertEqual(alignments, [.left, .left])
+        XCTAssertEqual(rows.count, 2)
+        XCTAssertEqual(rows[0], ["Alice", "30"])
+        XCTAssertEqual(rows[1], ["Bob", "25"])
+    }
+
+    func testParsesTableWithAlignment() throws {
+        let input = """
+        | Left | Center | Right |
+        |:-----|:------:|------:|
+        | a | b | c |
+        """
+        let document = MarkdownParser.parse(input)
+        XCTAssertEqual(document.blocks.count, 1)
+        guard case .table(_, let alignments, _) = document.blocks[0] else {
+            XCTFail("Expected table block")
+            return
+        }
+        XCTAssertEqual(alignments, [.left, .center, .right])
+    }
+
+    // MARK: - Image
+
+    func testParsesImage() throws {
+        let document = MarkdownParser.parse("![alt text](image.png)")
+        XCTAssertEqual(document.blocks.count, 1)
+        XCTAssertEqual(document.blocks[0], .image(alt: "alt text", url: "image.png"))
+    }
+
+    // MARK: - Standalone link
+
+    func testParsesStandaloneLink() throws {
+        let document = MarkdownParser.parse("[Goat](https://example.com)")
+        XCTAssertEqual(document.blocks.count, 1)
+        XCTAssertEqual(document.blocks[0], .link(text: "Goat", url: "https://example.com"))
+    }
 }

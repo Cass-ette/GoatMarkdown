@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct ContentView: View {
     @State private var state = MarkdownReaderState()
@@ -7,10 +8,7 @@ struct ContentView: View {
         NavigationSplitView {
             FileBrowserSidebar(
                 tree: state.fileTree,
-                selectedFileURL: Binding(
-                    get: { state.selectedFileURL },
-                    set: { if let url = $0 { state.selectFile(url) } }
-                ),
+                selectedFileURL: $state.selectedFileURL,
                 onSelect: { state.selectFile($0) }
             )
             .frame(minWidth: 200)
@@ -26,7 +24,12 @@ struct ContentView: View {
             }
         }
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
+            ToolbarItemGroup(placement: .primaryAction) {
+                Button {
+                    openFilePanel()
+                } label: {
+                    Label("Open File", systemImage: "doc.text")
+                }
                 Button {
                     openFolderPanel()
                 } label: {
@@ -41,9 +44,25 @@ struct ContentView: View {
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
+        panel.prompt = "Open"
         panel.begin { response in
             guard response == .OK, let url = panel.url else { return }
             state.openFolder(url)
+        }
+    }
+
+    private func openFilePanel() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [.init(filenameExtension: "md")!, .init(filenameExtension: "markdown")!]
+        panel.prompt = "Open"
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            let parentDir = url.deletingLastPathComponent()
+            state.openFolder(parentDir)
+            state.selectFile(url)
         }
     }
 }

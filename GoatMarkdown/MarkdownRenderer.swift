@@ -20,12 +20,12 @@ struct MarkdownRenderer: View {
     private func renderBlock(_ block: MarkdownBlock) -> some View {
         switch block {
         case .heading(let level, let text):
-            Text(text)
+            Text((try? AttributedString(markdown: text)) ?? AttributedString(text))
                 .font(theme.headingFonts[level] ?? .headline)
                 .foregroundStyle(theme.headingColor)
 
         case .paragraph(let text):
-            Text(text)
+            Text(renderInlineMarkdown(text))
                 .font(theme.bodyFont)
                 .foregroundStyle(theme.bodyColor)
 
@@ -36,7 +36,7 @@ struct MarkdownRenderer: View {
                         Text(theme.listItemBullet)
                             .font(theme.bodyFont)
                             .foregroundStyle(theme.bodyColor)
-                        Text(item)
+                        Text(renderInlineMarkdown(item))
                             .font(theme.bodyFont)
                             .foregroundStyle(theme.bodyColor)
                     }
@@ -51,7 +51,7 @@ struct MarkdownRenderer: View {
                             .font(theme.bodyFont)
                             .foregroundStyle(theme.bodyColor)
                             .frame(width: 28, alignment: .trailing)
-                        Text(item)
+                        Text(renderInlineMarkdown(item))
                             .font(theme.bodyFont)
                             .foregroundStyle(theme.bodyColor)
                     }
@@ -63,7 +63,7 @@ struct MarkdownRenderer: View {
                 RoundedRectangle(cornerRadius: 2)
                     .fill(theme.quoteBarColor)
                     .frame(width: 4)
-                Text(text)
+                Text(renderInlineMarkdown(text))
                     .font(theme.bodyFont)
                     .foregroundStyle(theme.quoteColor)
                     .padding(.leading, 12)
@@ -93,6 +93,121 @@ struct MarkdownRenderer: View {
             Divider()
                 .background(theme.hrColor)
                 .padding(.vertical, 4)
+
+        case .table(let headers, let alignments, let rows):
+            renderTable(headers: headers, alignments: alignments, rows: rows)
+
+        case .image(let alt, let url):
+            renderImage(alt: alt, url: url)
+
+        case .link(let text, let url):
+            if let linkURL = URL(string: url) {
+                Link(destination: linkURL) {
+                    Text(text)
+                        .font(theme.bodyFont)
+                        .foregroundStyle(Color.accentColor)
+                        .underline()
+                }
+            } else {
+                Text(text)
+                    .font(theme.bodyFont)
+                    .foregroundStyle(theme.bodyColor)
+            }
         }
+    }
+
+    // MARK: - Inline Markdown
+
+    private func renderInlineMarkdown(_ text: String) -> AttributedString {
+        if let attributed = try? AttributedString(markdown: text) {
+            return attributed
+        }
+        return AttributedString(text)
+    }
+
+    // MARK: - Table
+
+    private func renderTable(headers: [String], alignments: [TableColumnAlignment], rows: [[String]]) -> some View {
+        let colCount = headers.count
+        return VStack(alignment: .leading, spacing: 0) {
+            // Header
+            HStack(spacing: 0) {
+                ForEach(0..<colCount, id: \.self) { col in
+                    Text(renderInlineMarkdown(headers[col]))
+                        .font(.headline)
+                        .frame(maxWidth: .infinity, alignment: alignmentForColumn(col, alignments: alignments))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 6)
+                        .lineLimit(1)
+                }
+            }
+            .background(Color(nsColor: .controlBackgroundColor))
+
+            // Rows
+            ForEach(0..<rows.count, id: \.self) { rowIdx in
+                HStack(spacing: 0) {
+                    ForEach(0..<colCount, id: \.self) { col in
+                        let cellText = col < rows[rowIdx].count ? rows[rowIdx][col] : ""
+                        Text(renderInlineMarkdown(cellText))
+                            .font(theme.bodyFont)
+                            .frame(maxWidth: .infinity, alignment: alignmentForColumn(col, alignments: alignments))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 6)
+                    }
+                }
+                if rowIdx < rows.count - 1 {
+                    Divider()
+                }
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+        )
+    }
+
+    private func alignmentForColumn(_ index: Int, alignments: [TableColumnAlignment]) -> Alignment {
+        guard index < alignments.count else { return .leading }
+        switch alignments[index] {
+        case .left: return .leading
+        case .center: return .center
+        case .right: return .trailing
+        }
+    }
+
+    // MARK: - Image
+
+    private func renderImage(alt: String, url: String) -> some View {
+        Group {
+            if url.hasPrefix("http"), let imageURL = URL(string: url) {
+                AsyncImage(url: imageURL) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                    case .failure:
+                        Text(alt)
+                            .font(theme.bodyFont)
+                            .foregroundStyle(.secondary)
+                    default:
+                        ProgressView()
+                    }
+                }
+            } else {
+                let fileURL = URL(fileURLWithPath: url)
+                if let nsImage = NSImage(contentsOf: fileURL) {
+                    Image(nsImage: nsImage)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                } else {
+                    Text(alt)
+                        .font(theme.bodyFont)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

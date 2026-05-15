@@ -74,6 +74,27 @@ enum MarkdownParser {
                 continue
             }
 
+            // Image: ![alt](url) on its own line
+            if let image = parseStandaloneImage(trimmed) {
+                blocks.append(image)
+                i += 1
+                continue
+            }
+
+            // Standalone link: [text](url) on its own line
+            if let link = parseStandaloneLink(trimmed) {
+                blocks.append(link)
+                i += 1
+                continue
+            }
+
+            // Table: header row + separator row
+            if let table = tryParseTable(lines: lines, currentIndex: i) {
+                blocks.append(table.block)
+                i = table.nextIndex
+                continue
+            }
+
             // Paragraph
             var paraLines: [String] = []
             while i < lines.count {
@@ -213,5 +234,106 @@ enum MarkdownParser {
             }
         }
         return (items, i)
+    }
+
+    // MARK: - Image & Link
+
+    private static func parseStandaloneImage(_ line: String) -> MarkdownBlock? {
+        guard line.hasPrefix("![") && line.contains("](") && line.hasSuffix(")") else { return nil }
+        return parseImageOrLink(line: line, prefix: "!")
+    }
+
+    private static func parseStandaloneLink(_ line: String) -> MarkdownBlock? {
+        guard line.hasPrefix("[") && line.contains("](") && line.hasSuffix(")") else { return nil }
+        guard !line.hasPrefix("![") else { return nil }
+        return parseImageOrLink(line: line, prefix: "")
+    }
+
+    private static func parseImageOrLink(line: String, prefix: String) -> MarkdownBlock? {
+        let openBracket = prefix + "["
+        guard line.hasPrefix(openBracket) else { return nil }
+        let afterOpen = line.index(line.startIndex, offsetBy: openBracket.count)
+        guard let closeBracket = line[afterOpen...].firstIndex(of: "]") else { return nil }
+        let text = String(line[afterOpen..<closeBracket])
+        let afterClose = line.index(after: closeBracket)
+        guard afterClose < line.endIndex, line[afterClose] == "(" else { return nil }
+        let urlStart = line.index(after: afterClose)
+        guard line.hasSuffix(")") else { return nil }
+        let urlEnd = line.index(before: line.endIndex)
+        let url = String(line[urlStart..<urlEnd]).trimmingCharacters(in: .whitespaces)
+        guard !url.isEmpty else { return nil }
+
+        if prefix == "!" {
+            return .image(alt: text, url: url)
+        } else {
+            return .link(text: text, url: url)
+        }
+    }
+
+    // MARK: - Table
+
+    private struct TableResult {
+        let block: MarkdownBlock
+        let nextIndex: Int
+    }
+
+    private static func tryParseTable(lines: [String], currentIndex: Int) -> TableResult? {
+        guard currentIndex + 1 < lines.count else { return nil }
+        let headerLine = lines[currentIndex].trimmingCharacters(in: .whitespaces)
+        let sepLine = lines[currentIndex + 1].trimmingCharacters(in: .whitespaces)
+        guard isPipeDelimited(headerLine), isTableSeparator(sepLine) else { return nil }
+
+        let headers = parsePipeRow(headerLine)
+        let alignments = parseAlignments(sepLine)
+        guard headers.count == alignments.count else { return nil }
+
+        var rows: [[String]] = []
+        var i = currentIndex + 2
+        while i < lines.count {
+            let line = lines[i].trimmingCharacters(in: .whitespaces)
+            if line.isEmpty || !isPipeDelimited(line) { break }
+            let cells = parsePipeRow(line)
+            rows.append(cells)
+            i += 1
+        }
+
+        return TableResult(
+            block: .table(headers: headers, alignments: alignments, rows: rows),
+            nextIndex: i
+        )
+    }
+
+    private static func isPipeDelimited(_ line: String) -> Bool {
+        line.contains("|")
+    }
+
+    private static func isTableSeparator(_ line: String) -> Bool {
+        let stripped = line.trimmingCharacters(in: CharacterSet(charactersIn: " |:-"))
+        guard stripped.isEmpty else { return false }
+        let cols = parsePipeRow(line)
+        return cols.allSatisfy { cell in
+            let trimmed = cell.trimmingCharacters(in: .whitespaces)
+            guard trimmed.hasPrefix("-") || trimmed.hasPrefix(":") else { return false }
+            let cleaned = trimmed.trimmingCharacters(in: CharacterSet(charactersIn: ":-"))
+            return cleaned.allSatisfy { $0 == "-" }
+        }
+    }
+
+    private static func parsePipeRow(_ line: String) -> [String] {
+        var cells = line.components(separatedBy: "|")
+        if cells.first?.trimmingCharacters(in: .whitespaces).isEmpty == true { cells.removeFirst() }
+        if cells.last?.trimmingCharacters(in: .whitespaces).isEmpty == true { cells.removeLast() }
+        return cells.map { $0.trimmingCharacters(in: .whitespaces) }
+    }
+
+    private static func parseAlignments(_ line: String) -> [TableColumnAlignment] {
+        parsePipeRow(line).map { cell in
+            let trimmed = cell.trimmingCharacters(in: .whitespaces)
+            let left = trimmed.hasPrefix(":")
+            let right = trimmed.hasSuffix(":")
+            if left && right { return .center }
+            if right { return .right }
+            return .left
+        }
     }
 }
