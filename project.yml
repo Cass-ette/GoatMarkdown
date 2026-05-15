@@ -1,0 +1,30 @@
+name: GoatMarkdown
+options:
+  bundleIdPrefix: com.cassette
+  deploymentTarget:
+    macOS: "15.0"
+targets:
+  GoatMarkdown:
+    type: application
+    platform: macOS
+    sources:
+      - path: GoatMarkdown
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.cassette.GoatMarkdown
+        INFOPLIST_KEY_NSHumanReadableCopyright: ""
+    info:
+      path: GoatMarkdown/Resources/Info.plist
+      properties:
+        CFBundleDisplayName: GoatMarkdown
+        NSPrincipalClass: NSApplication
+  GoatMarkdownTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: GoatMarkdownTests
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+    dependencies:
+      - target: GoatMarkdown

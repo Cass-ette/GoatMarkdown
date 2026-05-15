@@ -12,5 +12,13 @@ build/
 .swiftpm/
 .build/
 
+# Generated Xcode project
+GoatMarkdown.xcodeproj/
+
 # Claude local settings
 .claude/settings.local.json
+
+# Working plan files (not part of the project)
+task_plan.md
+findings.md
+progress.md
