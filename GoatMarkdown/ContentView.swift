@@ -2,7 +2,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct ContentView: View {
-    @State private var state = MarkdownReaderState()
+    @Bindable var state: MarkdownReaderState
 
     var body: some View {
         NavigationSplitView {

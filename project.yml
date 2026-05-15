@@ -18,6 +18,10 @@ targets:
       properties:
         CFBundleDisplayName: GoatMarkdown
         NSPrincipalClass: NSApplication
+        CFBundleURLTypes:
+          - CFBundleURLName: com.cassette.GoatMarkdown
+            CFBundleURLSchemes:
+              - goatmarkdown
   GoatMarkdownTests:
     type: bundle.unit-test
     platform: macOS
