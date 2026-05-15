@@ -3,6 +3,7 @@ import UniformTypeIdentifiers
 
 struct ContentView: View {
     @Bindable var state: MarkdownReaderState
+    @FocusState private var searchFieldFocused: Bool
 
     var body: some View {
         NavigationSplitView {
@@ -23,6 +24,7 @@ struct ContentView: View {
                                 TextField("Search", text: $state.searchText)
                                     .textFieldStyle(.plain)
                                     .font(.body)
+                                    .focused($searchFieldFocused)
                                 if !state.searchText.isEmpty {
                                     Button {
                                         state.searchText = ""
@@ -48,6 +50,9 @@ struct ContentView: View {
                             .shadow(color: .black.opacity(0.1), radius: 4, y: 2)
                             .padding()
                         }
+                    }
+                    .onChange(of: state.showSearch) { _, isShowing in
+                        searchFieldFocused = isShowing
                     }
             } else if state.isLoading {
                 ProgressView()
