@@ -13,6 +13,7 @@ struct MarkdownRenderer: View {
             }
             .frame(maxWidth: theme.contentMaxWidth)
             .padding(theme.contentPadding)
+            .textSelection(.enabled)
         }
     }
 
