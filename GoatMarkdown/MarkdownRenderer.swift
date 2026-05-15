@@ -3,13 +3,15 @@ import SwiftUI
 struct MarkdownRenderer: View {
     let document: MarkdownDocument
     var theme: MarkdownTheme = MarkdownTheme()
-    var searchText: String = ""
+    var searchState: SearchState?
+
+    private static var inlineCache: [String: AttributedString] = [:]
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                ForEach(document.blocks) { block in
-                    renderBlock(block)
+                ForEach(Array(document.blocks.enumerated()), id: \.element.id) { index, block in
+                    renderBlock(block, blockIndex: index)
                 }
             }
             .frame(maxWidth: theme.contentMaxWidth)
@@ -18,32 +20,20 @@ struct MarkdownRenderer: View {
         }
     }
 
-    // MARK: - Inline Markdown
+    // MARK: - Inline Markdown (cached)
 
-    private func renderInlineMarkdown(_ text: String) -> AttributedString {
-        if searchText.isEmpty {
-            return (try? AttributedString(markdown: text)) ?? AttributedString(text)
-        }
-        var attributed = (try? AttributedString(markdown: text)) ?? AttributedString(text)
-        highlightSearch(in: &attributed)
-        return attributed
+    private func cachedInline(_ text: String) -> AttributedString {
+        if let cached = Self.inlineCache[text] { return cached }
+        let result = (try? AttributedString(markdown: text)) ?? AttributedString(text)
+        Self.inlineCache[text] = result
+        if Self.inlineCache.count > 2000 { Self.inlineCache.removeAll() }
+        return result
     }
 
-    private func highlightSearch(in attributed: inout AttributedString) {
-        let plain = String(attributed.characters)
-        let lower = plain.lowercased()
-        let searchLower = searchText.lowercased()
-        var start = lower.startIndex
-        while start < lower.endIndex {
-            guard let range = lower.range(of: searchLower, range: start..<lower.endIndex) else { break }
-            let attrRange = Range(range, in: attributed)!
-            attributed[attrRange].backgroundColor = Color(nsColor: .findHighlightColor)
-            start = range.upperBound
-        }
-    }
+    // MARK: - Block rendering
 
     @ViewBuilder
-    private func renderBlock(_ block: MarkdownBlock) -> some View {
+    private func renderBlock(_ block: MarkdownBlock, blockIndex: Int) -> some View {
         switch block {
         case .heading(let level, let text):
             Text(text)
@@ -51,7 +41,7 @@ struct MarkdownRenderer: View {
                 .foregroundStyle(theme.headingColor)
 
         case .paragraph(let text):
-            Text(renderInlineMarkdown(text))
+            Text(cachedInline(text))
                 .font(theme.bodyFont)
                 .foregroundStyle(theme.bodyColor)
 
@@ -62,7 +52,7 @@ struct MarkdownRenderer: View {
                         Text(theme.listItemBullet)
                             .font(theme.bodyFont)
                             .foregroundStyle(theme.bodyColor)
-                        Text(renderInlineMarkdown(item))
+                        Text(cachedInline(item))
                             .font(theme.bodyFont)
                             .foregroundStyle(theme.bodyColor)
                     }
@@ -77,7 +67,7 @@ struct MarkdownRenderer: View {
                             .font(theme.bodyFont)
                             .foregroundStyle(theme.bodyColor)
                             .frame(width: 28, alignment: .trailing)
-                        Text(renderInlineMarkdown(item))
+                        Text(cachedInline(item))
                             .font(theme.bodyFont)
                             .foregroundStyle(theme.bodyColor)
                     }
@@ -89,7 +79,7 @@ struct MarkdownRenderer: View {
                 RoundedRectangle(cornerRadius: 2)
                     .fill(theme.quoteBarColor)
                     .frame(width: 4)
-                Text(renderInlineMarkdown(text))
+                Text(cachedInline(text))
                     .font(theme.bodyFont)
                     .foregroundStyle(theme.quoteColor)
                     .padding(.leading, 12)
@@ -149,7 +139,7 @@ struct MarkdownRenderer: View {
         return VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 0) {
                 ForEach(0..<colCount, id: \.self) { col in
-                    Text(renderInlineMarkdown(headers[col]))
+                    Text(cachedInline(headers[col]))
                         .font(.headline)
                         .frame(maxWidth: .infinity, alignment: alignmentForColumn(col, alignments: alignments))
                         .padding(.horizontal, 8)
@@ -163,7 +153,7 @@ struct MarkdownRenderer: View {
                 HStack(spacing: 0) {
                     ForEach(0..<colCount, id: \.self) { col in
                         let cellText = col < rows[rowIdx].count ? rows[rowIdx][col] : ""
-                        Text(renderInlineMarkdown(cellText))
+                        Text(cachedInline(cellText))
                             .font(theme.bodyFont)
                             .frame(maxWidth: .infinity, alignment: alignmentForColumn(col, alignments: alignments))
                             .padding(.horizontal, 8)

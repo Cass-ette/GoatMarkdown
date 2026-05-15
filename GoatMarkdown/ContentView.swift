@@ -3,6 +3,7 @@ import UniformTypeIdentifiers
 
 struct ContentView: View {
     @Bindable var state: MarkdownReaderState
+    @State private var search = SearchState()
     @FocusState private var searchFieldFocused: Bool
 
     var body: some View {
@@ -15,28 +16,55 @@ struct ContentView: View {
             .frame(minWidth: 200)
         } detail: {
             if let document = state.currentDocument {
-                MarkdownRenderer(document: document, searchText: state.showSearch ? state.searchText : "")
+                MarkdownRenderer(document: document, searchState: search)
                     .overlay(alignment: .top) {
-                        if state.showSearch {
+                        if search.isActive {
                             HStack(spacing: 8) {
                                 Image(systemName: "magnifyingglass")
                                     .foregroundStyle(.secondary)
-                                TextField("Search", text: $state.searchText)
+
+                                TextField("Search", text: $search.query)
                                     .textFieldStyle(.plain)
                                     .font(.body)
                                     .focused($searchFieldFocused)
-                                if !state.searchText.isEmpty {
+                                    .onSubmit {
+                                        if search.matchCount > 0 {
+                                            search.nextMatch()
+                                        } else {
+                                            search.search(in: document)
+                                        }
+                                    }
+                                    .onChange(of: search.query) { _, _ in
+                                        search.search(in: document)
+                                    }
+
+                                if search.matchCount > 0 {
+                                    Text("\(search.currentMatchIndex + 1)/\(search.matchCount)")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .monospacedDigit()
+
                                     Button {
-                                        state.searchText = ""
+                                        search.previousMatch()
                                     } label: {
-                                        Image(systemName: "xmark.circle.fill")
-                                            .foregroundStyle(.secondary)
+                                        Image(systemName: "chevron.up")
                                     }
                                     .buttonStyle(.plain)
+
+                                    Button {
+                                        search.nextMatch()
+                                    } label: {
+                                        Image(systemName: "chevron.down")
+                                    }
+                                    .buttonStyle(.plain)
+                                } else if !search.query.isEmpty {
+                                    Text("0/0")
+                                        .font(.caption)
+                                        .foregroundStyle(.tertiary)
                                 }
+
                                 Button {
-                                    state.showSearch = false
-                                    state.searchText = ""
+                                    search.toggle()
                                 } label: {
                                     Image(systemName: "xmark")
                                         .foregroundStyle(.secondary)
@@ -51,8 +79,11 @@ struct ContentView: View {
                             .padding()
                         }
                     }
-                    .onChange(of: state.showSearch) { _, isShowing in
+                    .onChange(of: search.isActive) { _, isShowing in
                         searchFieldFocused = isShowing
+                    }
+                    .onChange(of: state.selectedFileURL) { _, _ in
+                        if let doc = state.currentDocument { search.search(in: doc) }
                     }
             } else if state.isLoading {
                 ProgressView()
@@ -65,9 +96,10 @@ struct ContentView: View {
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
                 Button {
-                    state.toggleSearch()
+                    search.toggle()
+                    if let doc = state.currentDocument { search.search(in: doc) }
                 } label: {
-                    Label("Find", systemImage: state.showSearch ? "magnifyingglass.circle.fill" : "magnifyingglass")
+                    Label("Find", systemImage: search.isActive ? "magnifyingglass.circle.fill" : "magnifyingglass")
                 }
                 Button {
                     openFilePanel()
@@ -83,7 +115,7 @@ struct ContentView: View {
         }
         .onKeyPress(.init("/")) {
             guard state.currentDocument != nil else { return .ignored }
-            state.showSearch = true
+            search.isActive = true
             return .handled
         }
     }

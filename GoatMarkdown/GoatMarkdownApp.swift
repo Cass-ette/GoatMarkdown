@@ -28,7 +28,7 @@ struct GoatMarkdownApp: App {
         .commands {
             CommandMenu("Find") {
                 Button("Find...") {
-                    state.toggleSearch()
+                    // Handled by ContentView's search state
                 }
                 .keyboardShortcut("f")
             }
