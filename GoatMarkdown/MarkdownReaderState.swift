@@ -8,14 +8,17 @@ final class MarkdownReaderState {
     var isLoading = false
 
     private let scanner = MarkdownFileScanner(fileManager: .default)
+    private let defaults = UserDefaults.standard
+    private static let lastFolderKey = "lastOpenedFolderPath"
+    private static let lastFileKey = "lastSelectedFilePath"
 
     func openFolder(_ url: URL) {
-        let access = url.startAccessingSecurityScopedResource()
-        defer { if access { url.stopAccessingSecurityScopedResource() } }
         do {
             fileTree = try scanner.scan(root: url)
             selectedFileURL = nil
             currentDocument = nil
+            defaults.set(url.path, forKey: Self.lastFolderKey)
+            defaults.removeObject(forKey: Self.lastFileKey)
         } catch {
             fileTree = nil
         }
@@ -29,6 +32,7 @@ final class MarkdownReaderState {
         do {
             let text = try String(contentsOf: url, encoding: .utf8)
             currentDocument = MarkdownParser.parse(text)
+            defaults.set(url.path, forKey: Self.lastFileKey)
         } catch {
             currentDocument = MarkdownDocument(blocks: [.paragraph(text: "Unable to read file: \(error.localizedDescription)")], rawText: "")
         }
@@ -46,7 +50,6 @@ final class MarkdownReaderState {
 
         let fileURL = URL(fileURLWithPath: path)
 
-        // Check if path is a directory or file
         var isDir: ObjCBool = false
         FileManager.default.fileExists(atPath: path, isDirectory: &isDir)
 
@@ -56,6 +59,35 @@ final class MarkdownReaderState {
             let parentDir = fileURL.deletingLastPathComponent()
             openFolder(parentDir)
             selectFile(fileURL)
+        }
+    }
+
+    func restoreLastSession() {
+        let lastFilePath = defaults.string(forKey: Self.lastFileKey)
+        let lastFolderPath = defaults.string(forKey: Self.lastFolderKey)
+
+        if let lastFilePath {
+            let fileURL = URL(fileURLWithPath: lastFilePath)
+            guard FileManager.default.fileExists(atPath: lastFilePath) else {
+                defaults.removeObject(forKey: Self.lastFileKey)
+                if let lastFolderPath {
+                    let folderURL = URL(fileURLWithPath: lastFolderPath)
+                    if FileManager.default.fileExists(atPath: lastFolderPath) {
+                        openFolder(folderURL)
+                    }
+                }
+                return
+            }
+            let parentDir = fileURL.deletingLastPathComponent()
+            openFolder(parentDir)
+            selectFile(fileURL)
+        } else if let lastFolderPath {
+            let folderURL = URL(fileURLWithPath: lastFolderPath)
+            guard FileManager.default.fileExists(atPath: lastFolderPath) else {
+                defaults.removeObject(forKey: Self.lastFolderKey)
+                return
+            }
+            openFolder(folderURL)
         }
     }
 }

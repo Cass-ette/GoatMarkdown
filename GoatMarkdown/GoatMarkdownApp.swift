@@ -7,6 +7,9 @@ struct GoatMarkdownApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView(state: state)
+                .onAppear {
+                    state.restoreLastSession()
+                }
                 .onOpenURL { url in
                     state.handleExternalURL(url)
                 }

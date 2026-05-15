@@ -1,0 +1,54 @@
+{
+  "name": "goatmarkdown-open",
+  "displayName": "Open in GoatMarkdown",
+  "description": "Open Markdown files and folders in GoatMarkdown reader",
+  "version": "0.1.0",
+  "publisher": "cassette",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onCommand:goatmarkdown.openFile",
+    "onCommand:goatmarkdown.openFolder"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "goatmarkdown.openFile",
+        "title": "Open in GoatMarkdown"
+      },
+      {
+        "command": "goatmarkdown.openFolder",
+        "title": "Open Folder in GoatMarkdown"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "goatmarkdown.openFile",
+          "when": "resourceLangId == markdown",
+          "group": "navigation"
+        },
+        {
+          "command": "goatmarkdown.openFolder",
+          "when": "explorerResourceIsFolder",
+          "group": "navigation"
+        }
+      ],
+      "editor/title/context": [
+        {
+          "command": "goatmarkdown.openFile",
+          "when": "resourceLangId == markdown",
+          "group": "navigation"
+        }
+      ]
+    }
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0"
+  }
+}
