@@ -8,7 +8,7 @@ struct MarkdownRenderer: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                ForEach(Array(document.blocks.enumerated()), id: \.offset) { _, block in
+                ForEach(document.blocks) { block in
                     renderBlock(block)
                 }
             }
@@ -21,17 +21,12 @@ struct MarkdownRenderer: View {
     // MARK: - Inline Markdown
 
     private func renderInlineMarkdown(_ text: String) -> AttributedString {
-        if var attributed = try? AttributedString(markdown: text) {
-            if !searchText.isEmpty {
-                highlightSearch(in: &attributed)
-            }
-            return attributed
+        if searchText.isEmpty {
+            return (try? AttributedString(markdown: text)) ?? AttributedString(text)
         }
-        var fallback = AttributedString(text)
-        if !searchText.isEmpty {
-            highlightSearch(in: &fallback)
-        }
-        return fallback
+        var attributed = (try? AttributedString(markdown: text)) ?? AttributedString(text)
+        highlightSearch(in: &attributed)
+        return attributed
     }
 
     private func highlightSearch(in attributed: inout AttributedString) {
@@ -51,7 +46,7 @@ struct MarkdownRenderer: View {
     private func renderBlock(_ block: MarkdownBlock) -> some View {
         switch block {
         case .heading(let level, let text):
-            Text((try? AttributedString(markdown: text)) ?? AttributedString(text))
+            Text(text)
                 .font(theme.headingFonts[level] ?? .headline)
                 .foregroundStyle(theme.headingColor)
 
