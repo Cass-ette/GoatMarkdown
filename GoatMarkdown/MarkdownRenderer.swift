@@ -8,16 +8,37 @@ struct MarkdownRenderer: View {
     private static var inlineCache: [String: AttributedString] = [:]
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                ForEach(Array(document.blocks.enumerated()), id: \.element.id) { index, block in
-                    renderBlock(block, blockIndex: index)
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    ForEach(Array(document.blocks.enumerated()), id: \.element.id) { index, block in
+                        renderBlock(block, blockIndex: index)
+                            .id("block-\(index)")
+                    }
+                }
+                .frame(maxWidth: theme.contentMaxWidth)
+                .padding(theme.contentPadding)
+                .textSelection(.enabled)
+            }
+            .onChange(of: searchState?.currentMatchIndex ?? 0) { _, _ in
+                if let match = searchState?.currentMatch {
+                    withAnimation {
+                        proxy.scrollTo("block-\(match.blockIndex)", anchor: .center)
+                    }
                 }
             }
-            .frame(maxWidth: theme.contentMaxWidth)
-            .padding(theme.contentPadding)
-            .textSelection(.enabled)
+            .onChange(of: searchState?.matchCount ?? 0) { _, newCount in
+                if newCount > 0, let match = searchState?.currentMatch {
+                    withAnimation {
+                        proxy.scrollTo("block-\(match.blockIndex)", anchor: .center)
+                    }
+                }
+            }
         }
+    }
+
+    private var currentMatchBlockIndex: Int? {
+        searchState?.currentMatch?.blockIndex
     }
 
     // MARK: - Inline Markdown (cached)
@@ -34,102 +55,112 @@ struct MarkdownRenderer: View {
 
     @ViewBuilder
     private func renderBlock(_ block: MarkdownBlock, blockIndex: Int) -> some View {
-        switch block {
-        case .heading(let level, let text):
-            Text(text)
-                .font(theme.headingFonts[level] ?? .headline)
-                .foregroundStyle(theme.headingColor)
+        let isCurrent = currentMatchBlockIndex == blockIndex
 
-        case .paragraph(let text):
-            Text(cachedInline(text))
-                .font(theme.bodyFont)
-                .foregroundStyle(theme.bodyColor)
+        Group {
+            switch block {
+            case .heading(let level, let text):
+                Text(text)
+                    .font(theme.headingFonts[level] ?? .headline)
+                    .foregroundStyle(theme.headingColor)
 
-        case .unorderedList(let items):
-            VStack(alignment: .leading, spacing: 4) {
-                ForEach(Array(items.enumerated()), id: \.offset) { _, item in
-                    HStack(alignment: .top, spacing: 8) {
-                        Text(theme.listItemBullet)
-                            .font(theme.bodyFont)
-                            .foregroundStyle(theme.bodyColor)
-                        Text(cachedInline(item))
-                            .font(theme.bodyFont)
-                            .foregroundStyle(theme.bodyColor)
-                    }
-                }
-            }
-
-        case .orderedList(let items):
-            VStack(alignment: .leading, spacing: 4) {
-                ForEach(Array(items.enumerated()), id: \.offset) { index, item in
-                    HStack(alignment: .top, spacing: 8) {
-                        Text("\(index + 1).")
-                            .font(theme.bodyFont)
-                            .foregroundStyle(theme.bodyColor)
-                            .frame(width: 28, alignment: .trailing)
-                        Text(cachedInline(item))
-                            .font(theme.bodyFont)
-                            .foregroundStyle(theme.bodyColor)
-                    }
-                }
-            }
-
-        case .blockquote(let text):
-            HStack(spacing: 0) {
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(theme.quoteBarColor)
-                    .frame(width: 4)
+            case .paragraph(let text):
                 Text(cachedInline(text))
                     .font(theme.bodyFont)
-                    .foregroundStyle(theme.quoteColor)
-                    .padding(.leading, 12)
-                    .padding(.vertical, 4)
-            }
-
-        case .codeBlock(let language, let code):
-            VStack(alignment: .leading, spacing: 0) {
-                if let language {
-                    Text(language)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 12)
-                        .padding(.top, 8)
-                        .padding(.bottom, 4)
-                }
-                Text(code)
-                    .font(theme.codeFont)
                     .foregroundStyle(theme.bodyColor)
-                    .padding(12)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .background(theme.codeBackgroundColor)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
 
-        case .thematicBreak:
-            Divider()
-                .background(theme.hrColor)
-                .padding(.vertical, 4)
+            case .unorderedList(let items):
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                        HStack(alignment: .top, spacing: 8) {
+                            Text(theme.listItemBullet)
+                                .font(theme.bodyFont)
+                                .foregroundStyle(theme.bodyColor)
+                            Text(cachedInline(item))
+                                .font(theme.bodyFont)
+                                .foregroundStyle(theme.bodyColor)
+                        }
+                    }
+                }
 
-        case .table(let headers, let alignments, let rows):
-            renderTable(headers: headers, alignments: alignments, rows: rows)
+            case .orderedList(let items):
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(Array(items.enumerated()), id: \.offset) { index, item in
+                        HStack(alignment: .top, spacing: 8) {
+                            Text("\(index + 1).")
+                                .font(theme.bodyFont)
+                                .foregroundStyle(theme.bodyColor)
+                                .frame(width: 28, alignment: .trailing)
+                            Text(cachedInline(item))
+                                .font(theme.bodyFont)
+                                .foregroundStyle(theme.bodyColor)
+                        }
+                    }
+                }
 
-        case .image(let alt, let url):
-            renderImage(alt: alt, url: url)
+            case .blockquote(let text):
+                HStack(spacing: 0) {
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(theme.quoteBarColor)
+                        .frame(width: 4)
+                    Text(cachedInline(text))
+                        .font(theme.bodyFont)
+                        .foregroundStyle(theme.quoteColor)
+                        .padding(.leading, 12)
+                        .padding(.vertical, 4)
+                }
 
-        case .link(let text, let url):
-            if let linkURL = URL(string: url) {
-                Link(destination: linkURL) {
+            case .codeBlock(let language, let code):
+                VStack(alignment: .leading, spacing: 0) {
+                    if let language {
+                        Text(language)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 12)
+                            .padding(.top, 8)
+                            .padding(.bottom, 4)
+                    }
+                    Text(code)
+                        .font(theme.codeFont)
+                        .foregroundStyle(theme.bodyColor)
+                        .padding(12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .background(theme.codeBackgroundColor)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+
+            case .thematicBreak:
+                Divider()
+                    .background(theme.hrColor)
+                    .padding(.vertical, 4)
+
+            case .table(let headers, let alignments, let rows):
+                renderTable(headers: headers, alignments: alignments, rows: rows)
+
+            case .image(let alt, let url):
+                renderImage(alt: alt, url: url)
+
+            case .link(let text, let url):
+                if let linkURL = URL(string: url) {
+                    Link(destination: linkURL) {
+                        Text(text)
+                            .font(theme.bodyFont)
+                            .foregroundStyle(Color.accentColor)
+                            .underline()
+                    }
+                } else {
                     Text(text)
                         .font(theme.bodyFont)
-                        .foregroundStyle(Color.accentColor)
-                        .underline()
+                        .foregroundStyle(theme.bodyColor)
                 }
-            } else {
-                Text(text)
-                    .font(theme.bodyFont)
-                    .foregroundStyle(theme.bodyColor)
             }
         }
+        .padding(.vertical, 2)
+        .padding(.horizontal, 4)
+        .background(
+            isCurrent ? Color(nsColor: .findHighlightColor).opacity(0.3) : Color.clear
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 4))
     }
 
     // MARK: - Table
