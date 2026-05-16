@@ -76,13 +76,15 @@ struct MarkdownRenderer: View {
         let plain = String(attributed.characters)
         let lower = plain.lowercased()
         let searchLower = query.lowercased()
-        let normalColor = Color.orange.opacity(0.3)
-        let currentColor = Color.orange.opacity(0.7)
         var start = lower.startIndex
         while start < lower.endIndex {
             guard let range = lower.range(of: searchLower, range: start..<lower.endIndex) else { break }
             if let attrRange = Range(range, in: attributed) {
-                attributed[attrRange].backgroundColor = isCurrentBlock ? currentColor : normalColor
+                if isCurrentBlock {
+                    attributed[attrRange].backgroundColor = Color.orange
+                } else {
+                    attributed[attrRange].backgroundColor = Color.orange.opacity(0.25)
+                }
             }
             start = range.upperBound
         }
