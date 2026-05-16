@@ -39,10 +39,11 @@ struct MarkdownRenderer: View {
 
     // MARK: - Inline Markdown (cached)
 
-    private func cachedInline(_ text: String) -> AttributedString {
+    private func cachedInline(_ text: String, inBlock blockIndex: Int? = nil) -> AttributedString {
+        let isCurrent = blockIndex != nil && blockIndex == searchState?.currentMatch?.blockIndex
         let cacheKey: String
         if let query = searchState?.query, !query.isEmpty {
-            cacheKey = "\(query)\n\(text)"
+            cacheKey = "\(query)|\(isCurrent)\n\(text)"
         } else {
             cacheKey = text
         }
@@ -51,7 +52,11 @@ struct MarkdownRenderer: View {
         var result = (try? AttributedString(markdown: text)) ?? AttributedString(text)
 
         if let query = searchState?.query, !query.isEmpty {
-            highlightWords(in: &result, query: query)
+            if isCurrent {
+                highlightCurrentWords(in: &result, query: query)
+            } else {
+                highlightWords(in: &result, query: query)
+            }
         }
 
         Self.inlineCache[cacheKey] = result
@@ -60,14 +65,24 @@ struct MarkdownRenderer: View {
     }
 
     private func highlightWords(in attributed: inout AttributedString, query: String) {
+        highlightWords(in: &attributed, query: query, isCurrentBlock: false)
+    }
+
+    private func highlightCurrentWords(in attributed: inout AttributedString, query: String) {
+        highlightWords(in: &attributed, query: query, isCurrentBlock: true)
+    }
+
+    private func highlightWords(in attributed: inout AttributedString, query: String, isCurrentBlock: Bool) {
         let plain = String(attributed.characters)
         let lower = plain.lowercased()
         let searchLower = query.lowercased()
+        let normalColor = Color.orange.opacity(0.3)
+        let currentColor = Color.orange.opacity(0.7)
         var start = lower.startIndex
         while start < lower.endIndex {
             guard let range = lower.range(of: searchLower, range: start..<lower.endIndex) else { break }
             if let attrRange = Range(range, in: attributed) {
-                attributed[attrRange].backgroundColor = Color(nsColor: .findHighlightColor)
+                attributed[attrRange].backgroundColor = isCurrentBlock ? currentColor : normalColor
             }
             start = range.upperBound
         }
@@ -84,7 +99,7 @@ struct MarkdownRenderer: View {
                 .foregroundStyle(theme.headingColor)
 
         case .paragraph(let text):
-            Text(cachedInline(text))
+            Text(cachedInline(text, inBlock: blockIndex))
                 .font(theme.bodyFont)
                 .foregroundStyle(theme.bodyColor)
 
@@ -95,7 +110,7 @@ struct MarkdownRenderer: View {
                         Text(theme.listItemBullet)
                             .font(theme.bodyFont)
                             .foregroundStyle(theme.bodyColor)
-                        Text(cachedInline(item))
+                        Text(cachedInline(item, inBlock: blockIndex))
                             .font(theme.bodyFont)
                             .foregroundStyle(theme.bodyColor)
                     }
@@ -110,7 +125,7 @@ struct MarkdownRenderer: View {
                             .font(theme.bodyFont)
                             .foregroundStyle(theme.bodyColor)
                             .frame(width: 28, alignment: .trailing)
-                        Text(cachedInline(item))
+                        Text(cachedInline(item, inBlock: blockIndex))
                             .font(theme.bodyFont)
                             .foregroundStyle(theme.bodyColor)
                     }
@@ -122,7 +137,7 @@ struct MarkdownRenderer: View {
                 RoundedRectangle(cornerRadius: 2)
                     .fill(theme.quoteBarColor)
                     .frame(width: 4)
-                Text(cachedInline(text))
+                Text(cachedInline(text, inBlock: blockIndex))
                     .font(theme.bodyFont)
                     .foregroundStyle(theme.quoteColor)
                     .padding(.leading, 12)
