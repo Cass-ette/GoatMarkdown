@@ -37,130 +37,142 @@ struct MarkdownRenderer: View {
         }
     }
 
-    private var currentMatchBlockIndex: Int? {
-        searchState?.currentMatch?.blockIndex
-    }
-
     // MARK: - Inline Markdown (cached)
 
     private func cachedInline(_ text: String) -> AttributedString {
-        if let cached = Self.inlineCache[text] { return cached }
-        let result = (try? AttributedString(markdown: text)) ?? AttributedString(text)
-        Self.inlineCache[text] = result
+        let cacheKey: String
+        if let query = searchState?.query, !query.isEmpty {
+            cacheKey = "\(query)\n\(text)"
+        } else {
+            cacheKey = text
+        }
+        if let cached = Self.inlineCache[cacheKey] { return cached }
+
+        var result = (try? AttributedString(markdown: text)) ?? AttributedString(text)
+
+        if let query = searchState?.query, !query.isEmpty {
+            highlightWords(in: &result, query: query)
+        }
+
+        Self.inlineCache[cacheKey] = result
         if Self.inlineCache.count > 2000 { Self.inlineCache.removeAll() }
         return result
+    }
+
+    private func highlightWords(in attributed: inout AttributedString, query: String) {
+        let plain = String(attributed.characters)
+        let lower = plain.lowercased()
+        let searchLower = query.lowercased()
+        var start = lower.startIndex
+        while start < lower.endIndex {
+            guard let range = lower.range(of: searchLower, range: start..<lower.endIndex) else { break }
+            if let attrRange = Range(range, in: attributed) {
+                attributed[attrRange].backgroundColor = Color(nsColor: .findHighlightColor)
+            }
+            start = range.upperBound
+        }
     }
 
     // MARK: - Block rendering
 
     @ViewBuilder
     private func renderBlock(_ block: MarkdownBlock, blockIndex: Int) -> some View {
-        let isCurrent = currentMatchBlockIndex == blockIndex
+        switch block {
+        case .heading(let level, let text):
+            Text(text)
+                .font(theme.headingFonts[level] ?? .headline)
+                .foregroundStyle(theme.headingColor)
 
-        Group {
-            switch block {
-            case .heading(let level, let text):
-                Text(text)
-                    .font(theme.headingFonts[level] ?? .headline)
-                    .foregroundStyle(theme.headingColor)
+        case .paragraph(let text):
+            Text(cachedInline(text))
+                .font(theme.bodyFont)
+                .foregroundStyle(theme.bodyColor)
 
-            case .paragraph(let text):
-                Text(cachedInline(text))
-                    .font(theme.bodyFont)
-                    .foregroundStyle(theme.bodyColor)
-
-            case .unorderedList(let items):
-                VStack(alignment: .leading, spacing: 4) {
-                    ForEach(Array(items.enumerated()), id: \.offset) { _, item in
-                        HStack(alignment: .top, spacing: 8) {
-                            Text(theme.listItemBullet)
-                                .font(theme.bodyFont)
-                                .foregroundStyle(theme.bodyColor)
-                            Text(cachedInline(item))
-                                .font(theme.bodyFont)
-                                .foregroundStyle(theme.bodyColor)
-                        }
-                    }
-                }
-
-            case .orderedList(let items):
-                VStack(alignment: .leading, spacing: 4) {
-                    ForEach(Array(items.enumerated()), id: \.offset) { index, item in
-                        HStack(alignment: .top, spacing: 8) {
-                            Text("\(index + 1).")
-                                .font(theme.bodyFont)
-                                .foregroundStyle(theme.bodyColor)
-                                .frame(width: 28, alignment: .trailing)
-                            Text(cachedInline(item))
-                                .font(theme.bodyFont)
-                                .foregroundStyle(theme.bodyColor)
-                        }
-                    }
-                }
-
-            case .blockquote(let text):
-                HStack(spacing: 0) {
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(theme.quoteBarColor)
-                        .frame(width: 4)
-                    Text(cachedInline(text))
-                        .font(theme.bodyFont)
-                        .foregroundStyle(theme.quoteColor)
-                        .padding(.leading, 12)
-                        .padding(.vertical, 4)
-                }
-
-            case .codeBlock(let language, let code):
-                VStack(alignment: .leading, spacing: 0) {
-                    if let language {
-                        Text(language)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 12)
-                            .padding(.top, 8)
-                            .padding(.bottom, 4)
-                    }
-                    Text(code)
-                        .font(theme.codeFont)
-                        .foregroundStyle(theme.bodyColor)
-                        .padding(12)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .background(theme.codeBackgroundColor)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-
-            case .thematicBreak:
-                Divider()
-                    .background(theme.hrColor)
-                    .padding(.vertical, 4)
-
-            case .table(let headers, let alignments, let rows):
-                renderTable(headers: headers, alignments: alignments, rows: rows)
-
-            case .image(let alt, let url):
-                renderImage(alt: alt, url: url)
-
-            case .link(let text, let url):
-                if let linkURL = URL(string: url) {
-                    Link(destination: linkURL) {
-                        Text(text)
+        case .unorderedList(let items):
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                    HStack(alignment: .top, spacing: 8) {
+                        Text(theme.listItemBullet)
                             .font(theme.bodyFont)
-                            .foregroundStyle(Color.accentColor)
-                            .underline()
+                            .foregroundStyle(theme.bodyColor)
+                        Text(cachedInline(item))
+                            .font(theme.bodyFont)
+                            .foregroundStyle(theme.bodyColor)
                     }
-                } else {
-                    Text(text)
-                        .font(theme.bodyFont)
-                        .foregroundStyle(theme.bodyColor)
                 }
             }
+
+        case .orderedList(let items):
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(Array(items.enumerated()), id: \.offset) { index, item in
+                    HStack(alignment: .top, spacing: 8) {
+                        Text("\(index + 1).")
+                            .font(theme.bodyFont)
+                            .foregroundStyle(theme.bodyColor)
+                            .frame(width: 28, alignment: .trailing)
+                        Text(cachedInline(item))
+                            .font(theme.bodyFont)
+                            .foregroundStyle(theme.bodyColor)
+                    }
+                }
+            }
+
+        case .blockquote(let text):
+            HStack(spacing: 0) {
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(theme.quoteBarColor)
+                    .frame(width: 4)
+                Text(cachedInline(text))
+                    .font(theme.bodyFont)
+                    .foregroundStyle(theme.quoteColor)
+                    .padding(.leading, 12)
+                    .padding(.vertical, 4)
+            }
+
+        case .codeBlock(let language, let code):
+            VStack(alignment: .leading, spacing: 0) {
+                if let language {
+                    Text(language)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 12)
+                        .padding(.top, 8)
+                        .padding(.bottom, 4)
+                }
+                Text(code)
+                    .font(theme.codeFont)
+                    .foregroundStyle(theme.bodyColor)
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .background(theme.codeBackgroundColor)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+
+        case .thematicBreak:
+            Divider()
+                .background(theme.hrColor)
+                .padding(.vertical, 4)
+
+        case .table(let headers, let alignments, let rows):
+            renderTable(headers: headers, alignments: alignments, rows: rows)
+
+        case .image(let alt, let url):
+            renderImage(alt: alt, url: url)
+
+        case .link(let text, let url):
+            if let linkURL = URL(string: url) {
+                Link(destination: linkURL) {
+                    Text(text)
+                        .font(theme.bodyFont)
+                        .foregroundStyle(Color.accentColor)
+                        .underline()
+                }
+            } else {
+                Text(text)
+                    .font(theme.bodyFont)
+                    .foregroundStyle(theme.bodyColor)
+            }
         }
-        .padding(.vertical, 2)
-        .padding(.horizontal, 4)
-        .background(
-            isCurrent ? Color(nsColor: .findHighlightColor).opacity(0.3) : Color.clear
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 4))
     }
 
     // MARK: - Table

@@ -1,5 +1,10 @@
 import SwiftUI
 
+extension Notification.Name {
+    static let toggleSearch = Notification.Name("toggleSearch")
+    static let openFileCommand = Notification.Name("openFileCommand")
+}
+
 @main
 struct GoatMarkdownApp: App {
     @State private var state = MarkdownReaderState()
@@ -28,23 +33,13 @@ struct GoatMarkdownApp: App {
         .commands {
             CommandMenu("Find") {
                 Button("Find...") {
-                    // Handled by ContentView's search state
+                    NotificationCenter.default.post(name: .toggleSearch, object: nil)
                 }
                 .keyboardShortcut("f")
             }
             CommandGroup(after: .newItem) {
                 Button("Open File...") {
-                    let panel = NSOpenPanel()
-                    panel.canChooseFiles = true
-                    panel.canChooseDirectories = false
-                    panel.allowsMultipleSelection = false
-                    panel.allowedContentTypes = [.init(filenameExtension: "md")!, .init(filenameExtension: "markdown")!]
-                    panel.prompt = "Open"
-                    panel.begin { response in
-                        guard response == .OK, let url = panel.url else { return }
-                        state.openFolder(url.deletingLastPathComponent())
-                        state.selectFile(url)
-                    }
+                    NotificationCenter.default.post(name: .openFileCommand, object: nil)
                 }
                 .keyboardShortcut("o")
             }

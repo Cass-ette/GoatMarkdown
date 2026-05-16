@@ -19,64 +19,7 @@ struct ContentView: View {
                 MarkdownRenderer(document: document, searchState: search)
                     .overlay(alignment: .top) {
                         if search.isActive {
-                            HStack(spacing: 8) {
-                                Image(systemName: "magnifyingglass")
-                                    .foregroundStyle(.secondary)
-
-                                TextField("Search", text: $search.query)
-                                    .textFieldStyle(.plain)
-                                    .font(.body)
-                                    .focused($searchFieldFocused)
-                                    .onSubmit {
-                                        if search.matchCount > 0 {
-                                            search.nextMatch()
-                                        } else {
-                                            search.search(in: document)
-                                        }
-                                    }
-                                    .onChange(of: search.query) { _, _ in
-                                        search.search(in: document)
-                                    }
-
-                                if search.matchCount > 0 {
-                                    Text("\(search.currentMatchIndex + 1)/\(search.matchCount)")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                        .monospacedDigit()
-
-                                    Button {
-                                        search.previousMatch()
-                                    } label: {
-                                        Image(systemName: "chevron.up")
-                                    }
-                                    .buttonStyle(.plain)
-
-                                    Button {
-                                        search.nextMatch()
-                                    } label: {
-                                        Image(systemName: "chevron.down")
-                                    }
-                                    .buttonStyle(.plain)
-                                } else if !search.query.isEmpty {
-                                    Text("0/0")
-                                        .font(.caption)
-                                        .foregroundStyle(.tertiary)
-                                }
-
-                                Button {
-                                    search.toggle()
-                                } label: {
-                                    Image(systemName: "xmark")
-                                        .foregroundStyle(.secondary)
-                                }
-                                .buttonStyle(.plain)
-                            }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(.regularMaterial)
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
-                            .shadow(color: .black.opacity(0.1), radius: 4, y: 2)
-                            .padding()
+                            searchBar(in: document)
                         }
                     }
                     .onChange(of: search.isActive) { _, isShowing in
@@ -84,6 +27,13 @@ struct ContentView: View {
                     }
                     .onChange(of: state.selectedFileURL) { _, _ in
                         if let doc = state.currentDocument { search.search(in: doc) }
+                    }
+                    .onReceive(NotificationCenter.default.publisher(for: .toggleSearch)) { _ in
+                        search.toggle()
+                        if let doc = state.currentDocument { search.search(in: doc) }
+                    }
+                    .onReceive(NotificationCenter.default.publisher(for: .openFileCommand)) { _ in
+                        openFilePanel()
                     }
             } else if state.isLoading {
                 ProgressView()
@@ -118,6 +68,69 @@ struct ContentView: View {
             search.isActive = true
             return .handled
         }
+    }
+
+    @ViewBuilder
+    private func searchBar(in document: MarkdownDocument) -> some View {
+        HStack(spacing: 6) {
+            TextField("Find", text: $search.query)
+                .textFieldStyle(.plain)
+                .font(.system(.body, design: .default))
+                .focused($searchFieldFocused)
+                .onSubmit {
+                    if search.matchCount > 0 {
+                        search.nextMatch()
+                    } else {
+                        search.search(in: document)
+                    }
+                }
+                .onChange(of: search.query) { _, _ in
+                    search.search(in: document)
+                }
+                .frame(minWidth: 120)
+
+            if search.matchCount > 0 {
+                Text("\(search.currentMatchIndex + 1) of \(search.matchCount)")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+
+                Button { search.previousMatch() } label: {
+                    Image(systemName: "chevron.up")
+                        .font(.system(size: 10, weight: .medium))
+                }
+                .buttonStyle(.plain)
+
+                Button { search.nextMatch() } label: {
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 10, weight: .medium))
+                }
+                .buttonStyle(.plain)
+            } else if !search.query.isEmpty {
+                Text("No results")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+            }
+
+            Divider().frame(height: 14)
+
+            Button {
+                search.toggle()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(.regularMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .shadow(color: .black.opacity(0.15), radius: 3, y: 1)
+        .frame(maxWidth: 360, alignment: .trailing)
+        .padding(.top, 6)
+        .padding(.trailing, 12)
     }
 
     private func openFolderPanel() {
