@@ -48,25 +48,42 @@ final class SearchState {
         return matches[currentMatchIndex]
     }
 
-    func isCurrentMatch(blockIndex: Int, range: Range<String.Index>) -> Bool {
-        guard let match = currentMatch else { return false }
-        return match.blockIndex == blockIndex && match.range == range
+    var currentMatchScrollID: String? {
+        currentMatch?.scrollID
     }
 
-    func isAnyMatch(blockIndex: Int, range: Range<String.Index>) -> Bool {
-        matches.contains { $0.blockIndex == blockIndex && $0.range == range }
+    func isCurrentMatch(blockIndex: Int, textIndex: Int, range: Range<String.Index>) -> Bool {
+        guard let match = currentMatch else { return false }
+        return match.blockIndex == blockIndex && match.textIndex == textIndex && match.range == range
+    }
+
+    func isCurrentMatchInView(blockIndex: Int, textIndex: Int) -> Bool {
+        guard let match = currentMatch else { return false }
+        return match.blockIndex == blockIndex && match.textIndex == textIndex
+    }
+
+    func isAnyMatch(blockIndex: Int, textIndex: Int, range: Range<String.Index>) -> Bool {
+        matches.contains { $0.blockIndex == blockIndex && $0.textIndex == textIndex && $0.range == range }
     }
 
     private func findMatches(in document: MarkdownDocument, term: String) -> [SearchMatch] {
         var results: [SearchMatch] = []
         for (blockIndex, block) in document.blocks.enumerated() {
-            let plainTexts = extractPlainTexts(from: block)
+            let plainTexts = extractSearchableTexts(from: block)
             for (textIndex, text) in plainTexts.enumerated() {
                 let lower = text.lowercased()
                 var start = lower.startIndex
                 while start < lower.endIndex {
                     guard let range = lower.range(of: term, range: start..<lower.endIndex) else { break }
-                    results.append(SearchMatch(blockIndex: blockIndex, textIndex: textIndex, range: range))
+                    results.append(
+                        SearchMatch(
+                            blockIndex: blockIndex,
+                            textIndex: textIndex,
+                            range: range,
+                            rangeStart: lower.distance(from: lower.startIndex, to: range.lowerBound),
+                            rangeEnd: lower.distance(from: lower.startIndex, to: range.upperBound)
+                        )
+                    )
                     start = range.upperBound
                 }
             }
@@ -74,20 +91,25 @@ final class SearchState {
         return results
     }
 
-    private func extractPlainTexts(from block: MarkdownBlock) -> [String] {
+    private func extractSearchableTexts(from block: MarkdownBlock) -> [String] {
         switch block {
-        case .heading(_, let text): return [text]
-        case .paragraph(let text): return [text]
-        case .blockquote(let text): return [text]
-        case .unorderedList(let items): return items
-        case .orderedList(let items): return items
+        case .heading(_, let text): return [renderedPlainText(text)]
+        case .paragraph(let text): return [renderedPlainText(text)]
+        case .blockquote(let text): return [renderedPlainText(text)]
+        case .unorderedList(let items): return items.map(renderedPlainText)
+        case .orderedList(let items): return items.map(renderedPlainText)
         case .codeBlock(_, let code): return [code]
         case .table(let headers, _, let rows):
-            return headers + rows.flatMap { $0 }
-        case .link(let text, _): return [text]
+            return headers.map(renderedPlainText) + rows.flatMap { $0.map(renderedPlainText) }
+        case .link(let text, _): return [renderedPlainText(text)]
         case .image(let alt, _): return [alt]
         case .thematicBreak: return []
         }
+    }
+
+    private func renderedPlainText(_ text: String) -> String {
+        let attributed = (try? AttributedString(markdown: text)) ?? AttributedString(text)
+        return String(attributed.characters)
     }
 }
 
@@ -95,4 +117,14 @@ struct SearchMatch: Equatable {
     let blockIndex: Int
     let textIndex: Int
     let range: Range<String.Index>
+    let rangeStart: Int
+    let rangeEnd: Int
+
+    var signature: String {
+        "\(blockIndex)|\(textIndex)|\(rangeStart)|\(rangeEnd)"
+    }
+
+    var scrollID: String {
+        "match-\(signature.replacingOccurrences(of: "|", with: "-"))"
+    }
 }

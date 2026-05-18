@@ -21,29 +21,37 @@ struct MarkdownRenderer: View {
                 .textSelection(.enabled)
             }
             .onChange(of: searchState?.currentMatchIndex ?? 0) { _, _ in
-                if let match = searchState?.currentMatch {
-                    withAnimation {
-                        proxy.scrollTo("block-\(match.blockIndex)", anchor: .center)
-                    }
-                }
+                scrollToCurrentMatch(with: proxy)
             }
             .onChange(of: searchState?.matchCount ?? 0) { _, newCount in
-                if newCount > 0, let match = searchState?.currentMatch {
-                    withAnimation {
-                        proxy.scrollTo("block-\(match.blockIndex)", anchor: .center)
-                    }
+                if newCount > 0 {
+                    scrollToCurrentMatch(with: proxy)
                 }
             }
         }
     }
 
+    private func scrollToCurrentMatch(with proxy: ScrollViewProxy) {
+        guard let scrollID = searchState?.currentMatchScrollID else { return }
+        withAnimation {
+            proxy.scrollTo(scrollID, anchor: .center)
+        }
+    }
+
+    private func matchScrollID(for blockIndex: Int, textIndex: Int) -> String? {
+        if searchState?.isCurrentMatchInView(blockIndex: blockIndex, textIndex: textIndex) == true {
+            return searchState?.currentMatchScrollID
+        }
+        return nil
+    }
+
     // MARK: - Inline Markdown (cached)
 
-    private func cachedInline(_ text: String, inBlock blockIndex: Int? = nil) -> AttributedString {
-        let isCurrent = blockIndex != nil && blockIndex == searchState?.currentMatch?.blockIndex
+    private func cachedInline(_ text: String, inBlock blockIndex: Int? = nil, textIndex: Int = 0) -> AttributedString {
         let cacheKey: String
         if let query = searchState?.query, !query.isEmpty {
-            cacheKey = "\(query)|\(isCurrent)\n\(text)"
+            let currentMatchSignature = searchState?.currentMatch?.signature ?? "none"
+            cacheKey = "\(query)|\(blockIndex.map(String.init) ?? "none")|\(textIndex)|\(currentMatchSignature)\n\(text)"
         } else {
             cacheKey = text
         }
@@ -52,11 +60,7 @@ struct MarkdownRenderer: View {
         var result = (try? AttributedString(markdown: text)) ?? AttributedString(text)
 
         if let query = searchState?.query, !query.isEmpty {
-            if isCurrent {
-                highlightCurrentWords(in: &result, query: query)
-            } else {
-                highlightWords(in: &result, query: query)
-            }
+            highlightWords(in: &result, query: query, blockIndex: blockIndex, textIndex: textIndex)
         }
 
         Self.inlineCache[cacheKey] = result
@@ -64,15 +68,12 @@ struct MarkdownRenderer: View {
         return result
     }
 
-    private func highlightWords(in attributed: inout AttributedString, query: String) {
-        highlightWords(in: &attributed, query: query, isCurrentBlock: false)
-    }
-
-    private func highlightCurrentWords(in attributed: inout AttributedString, query: String) {
-        highlightWords(in: &attributed, query: query, isCurrentBlock: true)
-    }
-
-    private func highlightWords(in attributed: inout AttributedString, query: String, isCurrentBlock: Bool) {
+    private func highlightWords(
+        in attributed: inout AttributedString,
+        query: String,
+        blockIndex: Int?,
+        textIndex: Int
+    ) {
         let plain = String(attributed.characters)
         let lower = plain.lowercased()
         let searchLower = query.lowercased()
@@ -80,7 +81,7 @@ struct MarkdownRenderer: View {
         while start < lower.endIndex {
             guard let range = lower.range(of: searchLower, range: start..<lower.endIndex) else { break }
             if let attrRange = Range(range, in: attributed) {
-                if isCurrentBlock {
+                if let blockIndex, searchState?.isCurrentMatch(blockIndex: blockIndex, textIndex: textIndex, range: range) == true {
                     attributed[attrRange].backgroundColor = Color.orange
                 } else {
                     attributed[attrRange].backgroundColor = Color.orange.opacity(0.25)
@@ -104,32 +105,35 @@ struct MarkdownRenderer: View {
             Text(cachedInline(text, inBlock: blockIndex))
                 .font(theme.bodyFont)
                 .foregroundStyle(theme.bodyColor)
+                .id(matchScrollID(for: blockIndex, textIndex: 0))
 
         case .unorderedList(let items):
             VStack(alignment: .leading, spacing: 4) {
-                ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                ForEach(Array(items.enumerated()), id: \.offset) { itemIndex, item in
                     HStack(alignment: .top, spacing: 8) {
                         Text(theme.listItemBullet)
                             .font(theme.bodyFont)
                             .foregroundStyle(theme.bodyColor)
-                        Text(cachedInline(item, inBlock: blockIndex))
+                        Text(cachedInline(item, inBlock: blockIndex, textIndex: itemIndex))
                             .font(theme.bodyFont)
                             .foregroundStyle(theme.bodyColor)
+                            .id(matchScrollID(for: blockIndex, textIndex: itemIndex))
                     }
                 }
             }
 
         case .orderedList(let items):
             VStack(alignment: .leading, spacing: 4) {
-                ForEach(Array(items.enumerated()), id: \.offset) { index, item in
+                ForEach(Array(items.enumerated()), id: \.offset) { itemIndex, item in
                     HStack(alignment: .top, spacing: 8) {
-                        Text("\(index + 1).")
+                        Text("\(itemIndex + 1).")
                             .font(theme.bodyFont)
                             .foregroundStyle(theme.bodyColor)
                             .frame(width: 28, alignment: .trailing)
-                        Text(cachedInline(item, inBlock: blockIndex))
+                        Text(cachedInline(item, inBlock: blockIndex, textIndex: itemIndex))
                             .font(theme.bodyFont)
                             .foregroundStyle(theme.bodyColor)
+                            .id(matchScrollID(for: blockIndex, textIndex: itemIndex))
                     }
                 }
             }
@@ -144,6 +148,7 @@ struct MarkdownRenderer: View {
                     .foregroundStyle(theme.quoteColor)
                     .padding(.leading, 12)
                     .padding(.vertical, 4)
+                    .id(matchScrollID(for: blockIndex, textIndex: 0))
             }
 
         case .codeBlock(let language, let code):
@@ -171,7 +176,7 @@ struct MarkdownRenderer: View {
                 .padding(.vertical, 4)
 
         case .table(let headers, let alignments, let rows):
-            renderTable(headers: headers, alignments: alignments, rows: rows)
+            renderTable(headers: headers, alignments: alignments, rows: rows, blockIndex: blockIndex)
 
         case .image(let alt, let url):
             renderImage(alt: alt, url: url)
@@ -194,12 +199,12 @@ struct MarkdownRenderer: View {
 
     // MARK: - Table
 
-    private func renderTable(headers: [String], alignments: [TableColumnAlignment], rows: [[String]]) -> some View {
+    private func renderTable(headers: [String], alignments: [TableColumnAlignment], rows: [[String]], blockIndex: Int) -> some View {
         let colCount = headers.count
         return VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 0) {
                 ForEach(0..<colCount, id: \.self) { col in
-                    Text(cachedInline(headers[col]))
+                    Text(cachedInline(headers[col], inBlock: blockIndex, textIndex: col))
                         .font(.headline)
                         .frame(maxWidth: .infinity, alignment: alignmentForColumn(col, alignments: alignments))
                         .padding(.horizontal, 8)
@@ -213,7 +218,7 @@ struct MarkdownRenderer: View {
                 HStack(spacing: 0) {
                     ForEach(0..<colCount, id: \.self) { col in
                         let cellText = col < rows[rowIdx].count ? rows[rowIdx][col] : ""
-                        Text(cachedInline(cellText))
+                        Text(cachedInline(cellText, inBlock: blockIndex, textIndex: textIndexForTableCell(row: rowIdx, column: col, headers: headers, rows: rows)))
                             .font(theme.bodyFont)
                             .frame(maxWidth: .infinity, alignment: alignmentForColumn(col, alignments: alignments))
                             .padding(.horizontal, 8)
@@ -230,6 +235,11 @@ struct MarkdownRenderer: View {
             RoundedRectangle(cornerRadius: 6)
                 .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
         )
+    }
+
+    private func textIndexForTableCell(row: Int, column: Int, headers: [String], rows: [[String]]) -> Int {
+        let precedingCells = rows.prefix(row).reduce(0) { $0 + $1.count }
+        return headers.count + precedingCells + column
     }
 
     private func alignmentForColumn(_ index: Int, alignments: [TableColumnAlignment]) -> Alignment {
