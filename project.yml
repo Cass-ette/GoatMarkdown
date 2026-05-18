@@ -13,6 +13,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.cassette.GoatMarkdown
         INFOPLIST_KEY_NSHumanReadableCopyright: ""
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
     info:
       path: GoatMarkdown/Resources/Info.plist
       properties:
