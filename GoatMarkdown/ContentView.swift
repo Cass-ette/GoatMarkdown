@@ -8,15 +8,20 @@ struct ContentView: View {
 
     var body: some View {
         NavigationSplitView {
-            FileBrowserSidebar(
-                tree: state.fileTree,
-                selectedFileURL: $state.selectedFileURL,
-                onSelect: { state.selectFile($0) }
-            )
+            FileBrowserSidebar(state: state, onSelect: { state.selectFile($0) })
             .frame(minWidth: 200)
         } detail: {
             if let document = state.currentDocument {
-                MarkdownRenderer(document: document, searchState: search)
+                MarkdownRenderer(
+                    document: document,
+                    theme: MarkdownTheme(bodyFontScale: state.bodyFontScale),
+                    searchState: search,
+                    pendingScrollBlockIndex: $state.pendingScrollBlockIndex,
+                    onToggleBookmark: { state.toggleBookmark(for: $0) },
+                    onToggleDefaultBookmark: { state.toggleDefaultBookmark(for: $0) },
+                    hasBookmark: { state.hasBookmark(for: $0) },
+                    isDefaultBookmark: { state.isDefaultBookmark(for: $0) }
+                )
                     .overlay(alignment: .top) {
                         if search.isActive {
                             searchBar(in: document)
@@ -51,6 +56,22 @@ struct ContentView: View {
                 } label: {
                     Label("Find", systemImage: search.isActive ? "magnifyingglass.circle.fill" : "magnifyingglass")
                 }
+                Button {
+                    state.decreaseBodyFontScale()
+                } label: {
+                    Image(systemName: "textformat.size.smaller")
+                }
+                .help("Decrease text size")
+                .keyboardShortcut("-", modifiers: .command)
+
+                Button {
+                    state.increaseBodyFontScale()
+                } label: {
+                    Image(systemName: "textformat.size.larger")
+                }
+                .help("Increase text size")
+                .keyboardShortcut("=", modifiers: .command)
+
                 Button {
                     openFilePanel()
                 } label: {
