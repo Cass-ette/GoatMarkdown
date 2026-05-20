@@ -65,9 +65,9 @@ struct MarkdownRenderer: View {
     }
 
     private func scrollToCurrentMatch(with proxy: ScrollViewProxy) {
-        guard let scrollID = searchState?.currentMatchScrollID else { return }
+        guard let match = searchState?.currentMatch else { return }
         withAnimation {
-            proxy.scrollTo(scrollID, anchor: .center)
+            proxy.scrollTo("block-\(match.blockIndex)", anchor: .center)
         }
     }
 
