@@ -4,16 +4,34 @@ struct MarkdownRenderer: View {
     let document: MarkdownDocument
     var theme: MarkdownTheme = MarkdownTheme()
     var searchState: SearchState?
+    var pendingScrollBlockIndex: Binding<Int?> = .constant(nil)
+    var onToggleBookmark: ((Int) -> Void)?
+    var onToggleDefaultBookmark: ((Int) -> Void)?
+    var hasBookmark: ((Int) -> Bool)?
+    var isDefaultBookmark: ((Int) -> Bool)?
 
+    @State private var hoveringBlockIndex: Int?
     private static var inlineCache: [String: AttributedString] = [:]
 
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
+                LazyVStack(alignment: .leading, spacing: 12) {
                     ForEach(Array(document.blocks.enumerated()), id: \.element.id) { index, block in
-                        renderBlock(block, blockIndex: index)
-                            .id("block-\(index)")
+                        BlockRow(
+                            blockIndex: index,
+                            hasBookmark: hasBookmark?(index) ?? false,
+                            isDefaultBookmark: isDefaultBookmark?(index) ?? false,
+                            isHovering: hoveringBlockIndex == index,
+                            onToggleBookmark: onToggleBookmark,
+                            onToggleDefaultBookmark: onToggleDefaultBookmark,
+                            onHoverChange: { hovering in
+                                hoveringBlockIndex = hovering ? index : nil
+                            }
+                        ) {
+                            renderBlock(block, blockIndex: index)
+                        }
+                        .id("block-\(index)")
                     }
                 }
                 .frame(maxWidth: theme.contentMaxWidth)
@@ -26,6 +44,21 @@ struct MarkdownRenderer: View {
             .onChange(of: searchState?.matchCount ?? 0) { _, newCount in
                 if newCount > 0 {
                     scrollToCurrentMatch(with: proxy)
+                }
+            }
+            .onChange(of: pendingScrollBlockIndex.wrappedValue) { _, newValue in
+                guard let blockIndex = newValue else { return }
+                withAnimation {
+                    proxy.scrollTo("block-\(blockIndex)", anchor: .top)
+                }
+                pendingScrollBlockIndex.wrappedValue = nil
+            }
+            .onAppear {
+                if let blockIndex = pendingScrollBlockIndex.wrappedValue {
+                    DispatchQueue.main.async {
+                        proxy.scrollTo("block-\(blockIndex)", anchor: .top)
+                        pendingScrollBlockIndex.wrappedValue = nil
+                    }
                 }
             }
         }
@@ -284,5 +317,116 @@ struct MarkdownRenderer: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct BlockRow<Content: View>: View {
+    let blockIndex: Int
+    let hasBookmark: Bool
+    let isDefaultBookmark: Bool
+    let isHovering: Bool
+    let onToggleBookmark: ((Int) -> Void)?
+    let onToggleDefaultBookmark: ((Int) -> Void)?
+    let onHoverChange: (Bool) -> Void
+    let content: () -> Content
+
+    init(
+        blockIndex: Int,
+        hasBookmark: Bool,
+        isDefaultBookmark: Bool,
+        isHovering: Bool,
+        onToggleBookmark: ((Int) -> Void)?,
+        onToggleDefaultBookmark: ((Int) -> Void)?,
+        onHoverChange: @escaping (Bool) -> Void,
+        @ViewBuilder content: @escaping () -> Content
+    ) {
+        self.blockIndex = blockIndex
+        self.hasBookmark = hasBookmark
+        self.isDefaultBookmark = isDefaultBookmark
+        self.isHovering = isHovering
+        self.onToggleBookmark = onToggleBookmark
+        self.onToggleDefaultBookmark = onToggleDefaultBookmark
+        self.onHoverChange = onHoverChange
+        self.content = content
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 6) {
+            BookmarkGutterButton(
+                blockIndex: blockIndex,
+                hasBookmark: hasBookmark,
+                isDefaultBookmark: isDefaultBookmark,
+                isHovering: isHovering,
+                onToggleBookmark: onToggleBookmark,
+                onToggleDefaultBookmark: onToggleDefaultBookmark
+            )
+            content()
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .onHover { hovering in
+            onHoverChange(hovering)
+        }
+    }
+}
+
+private struct BookmarkGutterButton: View {
+    let blockIndex: Int
+    let hasBookmark: Bool
+    let isDefaultBookmark: Bool
+    let isHovering: Bool
+    let onToggleBookmark: ((Int) -> Void)?
+    let onToggleDefaultBookmark: ((Int) -> Void)?
+
+    var body: some View {
+        Button {
+            if NSEvent.modifierFlags.contains(.shift) {
+                onToggleDefaultBookmark?(blockIndex)
+            } else {
+                onToggleBookmark?(blockIndex)
+            }
+        } label: {
+            Image(systemName: iconName)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(iconColor)
+                .frame(width: 18, height: 18)
+                .contentShape(Rectangle())
+                .opacity(opacity)
+        }
+        .buttonStyle(.plain)
+        .help(helpText)
+        .contextMenu {
+            Button(hasBookmark ? "Remove bookmark" : "Add bookmark") {
+                onToggleBookmark?(blockIndex)
+            }
+            Button(isDefaultBookmark ? "Unset auto-open default" : "Set as auto-open default") {
+                onToggleDefaultBookmark?(blockIndex)
+            }
+        }
+        .frame(width: 22)
+    }
+
+    private var opacity: Double {
+        if hasBookmark { return 1.0 }
+        if isHovering { return 1.0 }
+        return 0.18
+    }
+
+    private var iconName: String {
+        if isDefaultBookmark { return "bookmark.fill" }
+        if hasBookmark { return "bookmark.fill" }
+        return "bookmark"
+    }
+
+    private var iconColor: Color {
+        if isDefaultBookmark { return .yellow }
+        if hasBookmark { return .accentColor }
+        return .secondary
+    }
+
+    private var helpText: String {
+        if hasBookmark {
+            return "Click: remove bookmark · Shift+Click: toggle auto-open default"
+        }
+        return "Click: add bookmark · Shift+Click: set as auto-open default"
     }
 }

@@ -1,25 +1,30 @@
 import SwiftUI
 
 struct FileBrowserSidebar: View {
-    let tree: FileNode?
-    @Binding var selectedFileURL: URL?
+    @Bindable var state: MarkdownReaderState
     let onSelect: (URL) -> Void
 
     var body: some View {
         Group {
-            if let tree {
+            if let tree = state.fileTree {
                 if tree.children.isEmpty {
-                    Text("No Markdown files found")
-                        .foregroundStyle(.secondary)
-                        .padding()
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text("No Markdown files found")
+                            .foregroundStyle(.secondary)
+                            .padding()
+                        bookmarkList
+                    }
                 } else {
-                    List(selection: $selectedFileURL) {
-                        ForEach(tree.children) { child in
-                            FileNodeRow(node: child)
+                    List(selection: $state.selectedFileURL) {
+                        Section("Files") {
+                            ForEach(tree.children) { child in
+                                FileNodeRow(node: child)
+                            }
                         }
+                        BookmarkSidebarSection(state: state)
                     }
                     .listStyle(.sidebar)
-                    .onChange(of: selectedFileURL) { _, newURL in
+                    .onChange(of: state.selectedFileURL) { _, newURL in
                         if let newURL {
                             onSelect(newURL)
                         }
@@ -31,6 +36,14 @@ struct FileBrowserSidebar: View {
                     .padding()
             }
         }
+    }
+
+    @ViewBuilder
+    private var bookmarkList: some View {
+        List {
+            BookmarkSidebarSection(state: state)
+        }
+        .listStyle(.sidebar)
     }
 }
 
