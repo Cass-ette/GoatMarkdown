@@ -9,6 +9,7 @@ struct ContentView: View {
     @Environment(\.openWindow) private var openWindow
     @State private var state: MarkdownReaderState?
     @State private var search = SearchState()
+    @State private var searchScrollTrigger = 0
     @FocusState private var searchFieldFocused: Bool
 
     init(
@@ -52,6 +53,7 @@ struct ContentView: View {
                     document: document,
                     theme: MarkdownTheme(bodyFontScale: state.bodyFontScale),
                     searchState: search,
+                    searchScrollTrigger: searchScrollTrigger,
                     pendingScrollBlockIndex: $state.pendingScrollBlockIndex,
                     onToggleBookmark: { state.toggleBookmark(for: $0) },
                     onToggleDefaultBookmark: { state.toggleDefaultBookmark(for: $0) },
@@ -137,11 +139,7 @@ struct ContentView: View {
                 .font(.system(.body, design: .default))
                 .focused($searchFieldFocused)
                 .onSubmit {
-                    if search.matchCount > 0 {
-                        search.nextMatch()
-                    } else {
-                        search.search(in: document)
-                    }
+                    goToNextSearchMatch(in: document)
                 }
                 .onChange(of: search.query) { _, _ in
                     search.search(in: document)
@@ -154,13 +152,13 @@ struct ContentView: View {
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
 
-                Button { search.previousMatch() } label: {
+                Button { goToPreviousSearchMatch() } label: {
                     Image(systemName: "chevron.up")
                         .font(.system(size: 10, weight: .medium))
                 }
                 .buttonStyle(.plain)
 
-                Button { search.nextMatch() } label: {
+                Button { goToNextSearchMatch(in: document) } label: {
                     Image(systemName: "chevron.down")
                         .font(.system(size: 10, weight: .medium))
                 }
@@ -190,6 +188,20 @@ struct ContentView: View {
         .frame(maxWidth: 360, alignment: .trailing)
         .padding(.top, 6)
         .padding(.trailing, 12)
+    }
+
+    private func goToNextSearchMatch(in document: MarkdownDocument) {
+        if search.matchCount > 0 {
+            search.nextMatch()
+        } else {
+            search.search(in: document)
+        }
+        searchScrollTrigger += 1
+    }
+
+    private func goToPreviousSearchMatch() {
+        search.previousMatch()
+        searchScrollTrigger += 1
     }
 
     private func openFolderPanel(in state: MarkdownReaderState) {
