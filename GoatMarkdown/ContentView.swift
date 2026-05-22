@@ -82,11 +82,11 @@ struct ContentView: View {
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
                 Button {
-                    search.toggle()
-                    if let doc = state.currentDocument { search.search(in: doc) }
+                    toggleSearch(in: state)
                 } label: {
                     Label("Find", systemImage: search.isActive ? "magnifyingglass.circle.fill" : "magnifyingglass")
                 }
+                .keyboardShortcut("f", modifiers: .command)
                 Button {
                     state.decreaseBodyFontScale()
                 } label: {
@@ -121,10 +121,7 @@ struct ContentView: View {
             return .handled
         }
         .focusedValue(\.windowCommandActions, WindowCommandActions(
-            toggleSearch: {
-                search.toggle()
-                if let doc = state.currentDocument { search.search(in: doc) }
-            },
+            toggleSearch: { toggleSearch(in: state) },
             openFile: { openFilePanel(in: state) },
             openFolder: { openFolderPanel(in: state) },
             openInNewWindow: { openInNewWindowPanel() }
@@ -188,6 +185,11 @@ struct ContentView: View {
         .frame(maxWidth: 360, alignment: .trailing)
         .padding(.top, 6)
         .padding(.trailing, 12)
+    }
+
+    private func toggleSearch(in state: MarkdownReaderState) {
+        search.toggle()
+        if let doc = state.currentDocument { search.search(in: doc) }
     }
 
     private func goToNextSearchMatch(in document: MarkdownDocument) {
