@@ -20,12 +20,12 @@ final class MarkdownReaderStateFontScaleTests: XCTestCase {
     }
 
     func testBodyFontScaleDefaultsToOne() {
-        let state = MarkdownReaderState(defaults: defaults)
+        let state = makeState()
         XCTAssertEqual(state.bodyFontScale, 1.0)
     }
 
     func testIncreasingAndDecreasingBodyFontScaleClampsAndPersists() {
-        let state = MarkdownReaderState(defaults: defaults)
+        let state = makeState()
 
         state.increaseBodyFontScale()
         state.increaseBodyFontScale()
@@ -34,17 +34,21 @@ final class MarkdownReaderStateFontScaleTests: XCTestCase {
         state.decreaseBodyFontScale()
         XCTAssertEqual(state.bodyFontScale, 1.1, accuracy: 0.0001)
 
-        let reloaded = MarkdownReaderState(defaults: defaults)
+        let reloaded = makeState()
         XCTAssertEqual(reloaded.bodyFontScale, 1.1, accuracy: 0.0001)
     }
 
     func testBodyFontScaleDoesNotExceedBounds() {
-        let state = MarkdownReaderState(defaults: defaults)
+        let state = makeState()
 
         for _ in 0..<30 { state.increaseBodyFontScale() }
         XCTAssertLessThanOrEqual(state.bodyFontScale, 1.8)
 
         for _ in 0..<50 { state.decreaseBodyFontScale() }
         XCTAssertGreaterThanOrEqual(state.bodyFontScale, 0.8)
+    }
+
+    private func makeState() -> MarkdownReaderState {
+        MarkdownReaderState(defaults: defaults, bookmarkStore: BookmarkStore(defaults: defaults))
     }
 }

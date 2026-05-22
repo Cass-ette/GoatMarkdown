@@ -2,11 +2,48 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct ContentView: View {
-    @Bindable var state: MarkdownReaderState
+    let bookmarkStore: BookmarkStore
+    let shouldRestoreLastSession: Bool
+    let openRequest: OpenRequest?
+
+    @Environment(\.openWindow) private var openWindow
+    @State private var state: MarkdownReaderState?
     @State private var search = SearchState()
+    @State private var searchScrollTrigger = 0
     @FocusState private var searchFieldFocused: Bool
 
+    init(
+        bookmarkStore: BookmarkStore,
+        shouldRestoreLastSession: Bool = false,
+        openRequest: OpenRequest? = nil
+    ) {
+        self.bookmarkStore = bookmarkStore
+        self.shouldRestoreLastSession = shouldRestoreLastSession
+        self.openRequest = openRequest
+    }
+
     var body: some View {
+        Group {
+            if let state {
+                content(for: state)
+            } else {
+                ProgressView()
+                    .task {
+                        let created = MarkdownReaderState(bookmarkStore: bookmarkStore)
+                        state = created
+                        if let openRequest {
+                            created.handleFileURL(URL(fileURLWithPath: openRequest.path))
+                        } else if shouldRestoreLastSession {
+                            created.restoreLastSession()
+                        }
+                    }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func content(for state: MarkdownReaderState) -> some View {
+        @Bindable var state = state
         NavigationSplitView {
             FileBrowserSidebar(state: state, onSelect: { state.selectFile($0) })
             .frame(minWidth: 200)
@@ -16,6 +53,7 @@ struct ContentView: View {
                     document: document,
                     theme: MarkdownTheme(bodyFontScale: state.bodyFontScale),
                     searchState: search,
+                    searchScrollTrigger: searchScrollTrigger,
                     pendingScrollBlockIndex: $state.pendingScrollBlockIndex,
                     onToggleBookmark: { state.toggleBookmark(for: $0) },
                     onToggleDefaultBookmark: { state.toggleDefaultBookmark(for: $0) },
@@ -33,13 +71,6 @@ struct ContentView: View {
                     .onChange(of: state.selectedFileURL) { _, _ in
                         if let doc = state.currentDocument { search.search(in: doc) }
                     }
-                    .onReceive(NotificationCenter.default.publisher(for: .toggleSearch)) { _ in
-                        search.toggle()
-                        if let doc = state.currentDocument { search.search(in: doc) }
-                    }
-                    .onReceive(NotificationCenter.default.publisher(for: .openFileCommand)) { _ in
-                        openFilePanel()
-                    }
             } else if state.isLoading {
                 ProgressView()
             } else {
@@ -51,11 +82,11 @@ struct ContentView: View {
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
                 Button {
-                    search.toggle()
-                    if let doc = state.currentDocument { search.search(in: doc) }
+                    toggleSearch(in: state)
                 } label: {
                     Label("Find", systemImage: search.isActive ? "magnifyingglass.circle.fill" : "magnifyingglass")
                 }
+                .keyboardShortcut("f", modifiers: .command)
                 Button {
                     state.decreaseBodyFontScale()
                 } label: {
@@ -73,12 +104,12 @@ struct ContentView: View {
                 .keyboardShortcut("=", modifiers: .command)
 
                 Button {
-                    openFilePanel()
+                    openFilePanel(in: state)
                 } label: {
                     Label("Open File", systemImage: "doc.text")
                 }
                 Button {
-                    openFolderPanel()
+                    openFolderPanel(in: state)
                 } label: {
                     Label("Open Folder", systemImage: "folder")
                 }
@@ -89,6 +120,12 @@ struct ContentView: View {
             search.isActive = true
             return .handled
         }
+        .focusedValue(\.windowCommandActions, WindowCommandActions(
+            toggleSearch: { toggleSearch(in: state) },
+            openFile: { openFilePanel(in: state) },
+            openFolder: { openFolderPanel(in: state) },
+            openInNewWindow: { openInNewWindowPanel() }
+        ))
     }
 
     @ViewBuilder
@@ -99,11 +136,7 @@ struct ContentView: View {
                 .font(.system(.body, design: .default))
                 .focused($searchFieldFocused)
                 .onSubmit {
-                    if search.matchCount > 0 {
-                        search.nextMatch()
-                    } else {
-                        search.search(in: document)
-                    }
+                    goToNextSearchMatch(in: document)
                 }
                 .onChange(of: search.query) { _, _ in
                     search.search(in: document)
@@ -116,13 +149,13 @@ struct ContentView: View {
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
 
-                Button { search.previousMatch() } label: {
+                Button { goToPreviousSearchMatch() } label: {
                     Image(systemName: "chevron.up")
                         .font(.system(size: 10, weight: .medium))
                 }
                 .buttonStyle(.plain)
 
-                Button { search.nextMatch() } label: {
+                Button { goToNextSearchMatch(in: document) } label: {
                     Image(systemName: "chevron.down")
                         .font(.system(size: 10, weight: .medium))
                 }
@@ -154,7 +187,26 @@ struct ContentView: View {
         .padding(.trailing, 12)
     }
 
-    private func openFolderPanel() {
+    private func toggleSearch(in state: MarkdownReaderState) {
+        search.toggle()
+        if let doc = state.currentDocument { search.search(in: doc) }
+    }
+
+    private func goToNextSearchMatch(in document: MarkdownDocument) {
+        if search.matchCount > 0 {
+            search.nextMatch()
+        } else {
+            search.search(in: document)
+        }
+        searchScrollTrigger += 1
+    }
+
+    private func goToPreviousSearchMatch() {
+        search.previousMatch()
+        searchScrollTrigger += 1
+    }
+
+    private func openFolderPanel(in state: MarkdownReaderState) {
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
@@ -166,7 +218,7 @@ struct ContentView: View {
         }
     }
 
-    private func openFilePanel() {
+    private func openFilePanel(in state: MarkdownReaderState) {
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
@@ -175,9 +227,19 @@ struct ContentView: View {
         panel.prompt = "Open"
         panel.begin { response in
             guard response == .OK, let url = panel.url else { return }
-            let parentDir = url.deletingLastPathComponent()
-            state.openFolder(parentDir)
-            state.selectFile(url)
+            state.openFile(url)
+        }
+    }
+
+    private func openInNewWindowPanel() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Open in New Window"
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            openWindow(value: OpenRequest(path: url.path))
         }
     }
 }

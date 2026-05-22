@@ -107,6 +107,21 @@ final class MarkdownParserTests: XCTestCase {
         XCTAssertEqual(alignments, [.left, .center, .right])
     }
 
+    func testRendererBlockScrollIDsStayDistinctForRepeatedTables() throws {
+        let input = """
+        | Term | Meaning |
+        |------|---------|
+        | TCP | Transmission Control Protocol |
+
+        | Term | Meaning |
+        |------|---------|
+        | RIP | Routing Information Protocol |
+        """
+        let document = MarkdownParser.parse(input)
+        XCTAssertEqual(document.blocks.count, 2)
+        XCTAssertNotEqual(MarkdownRenderer.blockScrollID(for: 0), MarkdownRenderer.blockScrollID(for: 1))
+    }
+
     // MARK: - Image
 
     func testParsesImage() throws {

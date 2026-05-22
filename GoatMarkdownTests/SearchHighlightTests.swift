@@ -36,6 +36,16 @@ final class SearchHighlightTests: XCTestCase {
         XCTAssertGreaterThan(tablePixels, 0)
     }
 
+    func testCurrentCodeBlockMatchUsesSolidHighlightColor() throws {
+        let document = MarkdownDocument(
+            blocks: [.codeBlock(language: nil, code: "orca")],
+            rawText: "orca"
+        )
+        let codePixels = try solidOrangePixelCount(for: document, query: "orca")
+
+        XCTAssertGreaterThan(codePixels, 0)
+    }
+
     func testCachedHighlightUpdatesWhenCurrentMatchIdentityChanges() throws {
         let baselinePixels = try solidOrangePixelCount(in: highlightedText("emu"))
         let seedDocument = MarkdownDocument(

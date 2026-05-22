@@ -1,48 +1,108 @@
 import SwiftUI
 
-extension Notification.Name {
-    static let toggleSearch = Notification.Name("toggleSearch")
-    static let openFileCommand = Notification.Name("openFileCommand")
+struct WindowCommandActions {
+    var toggleSearch: () -> Void
+    var openFile: () -> Void
+    var openFolder: () -> Void
+    var openInNewWindow: () -> Void
+}
+
+private struct WindowCommandActionsKey: FocusedValueKey {
+    typealias Value = WindowCommandActions
+}
+
+extension FocusedValues {
+    var windowCommandActions: WindowCommandActions? {
+        get { self[WindowCommandActionsKey.self] }
+        set { self[WindowCommandActionsKey.self] = newValue }
+    }
+}
+
+@Observable
+final class WindowSessionCoordinator {
+    private var hasConsumedInitialRestore = false
+
+    func consumeShouldRestoreLastSession() -> Bool {
+        guard !hasConsumedInitialRestore else { return false }
+        hasConsumedInitialRestore = true
+        return true
+    }
+}
+
+struct GoatMarkdownCommands: Commands {
+    @FocusedValue(\.windowCommandActions) private var windowCommandActions
+
+    var body: some Commands {
+        CommandMenu("Find") {
+            Button("Find...") {
+                windowCommandActions?.toggleSearch()
+            }
+            .keyboardShortcut("f")
+            .disabled(windowCommandActions == nil)
+        }
+
+        CommandGroup(after: .newItem) {
+            Button("Open File...") {
+                windowCommandActions?.openFile()
+            }
+            .keyboardShortcut("o")
+            .disabled(windowCommandActions == nil)
+
+            Button("Open Folder...") {
+                windowCommandActions?.openFolder()
+            }
+            .disabled(windowCommandActions == nil)
+
+            Button("Open in New Window...") {
+                windowCommandActions?.openInNewWindow()
+            }
+            .keyboardShortcut("o", modifiers: [.command, .shift])
+            .disabled(windowCommandActions == nil)
+        }
+    }
 }
 
 @main
 struct GoatMarkdownApp: App {
-    @State private var state = MarkdownReaderState()
-    @State private var hasHandledInitialURL = false
+    @State private var bookmarkStore = BookmarkStore()
+    @State private var sessionCoordinator = WindowSessionCoordinator()
+    @Environment(\.openWindow) private var openWindow
 
     var body: some Scene {
         WindowGroup {
-            ContentView(state: state)
-                .task {
-                    try? await Task.sleep(for: .milliseconds(300))
-                    if !hasHandledInitialURL {
-                        state.restoreLastSession()
-                    }
-                }
-                .onOpenURL { url in
-                    hasHandledInitialURL = true
-                    if url.scheme == "file" {
-                        state.handleFileURL(url)
-                    } else {
-                        state.handleExternalURL(url)
-                    }
-                }
+            ContentView(
+                bookmarkStore: bookmarkStore,
+                shouldRestoreLastSession: sessionCoordinator.consumeShouldRestoreLastSession()
+            )
+            .onOpenURL { url in
+                guard let request = openRequest(from: url) else { return }
+                openWindow(value: request)
+            }
         }
         .windowStyle(.titleBar)
         .defaultSize(width: 1000, height: 700)
         .commands {
-            CommandMenu("Find") {
-                Button("Find...") {
-                    NotificationCenter.default.post(name: .toggleSearch, object: nil)
-                }
-                .keyboardShortcut("f")
-            }
-            CommandGroup(after: .newItem) {
-                Button("Open File...") {
-                    NotificationCenter.default.post(name: .openFileCommand, object: nil)
-                }
-                .keyboardShortcut("o")
-            }
+            GoatMarkdownCommands()
         }
+
+        WindowGroup("GoatMarkdown", for: OpenRequest.self) { request in
+            ContentView(
+                bookmarkStore: bookmarkStore,
+                shouldRestoreLastSession: false,
+                openRequest: request.wrappedValue
+            )
+        }
+        .windowStyle(.titleBar)
+        .defaultSize(width: 1000, height: 700)
+    }
+
+    private func openRequest(from url: URL) -> OpenRequest? {
+        if url.scheme == "file" {
+            return OpenRequest(path: url.path)
+        }
+        guard url.scheme == "goatmarkdown", url.host == "open" else { return nil }
+        let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        guard let path = components?.queryItems?.first(where: { $0.name == "path" })?.value else { return nil }
+        return OpenRequest(path: path)
     }
 }

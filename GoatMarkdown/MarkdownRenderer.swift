@@ -4,6 +4,7 @@ struct MarkdownRenderer: View {
     let document: MarkdownDocument
     var theme: MarkdownTheme = MarkdownTheme()
     var searchState: SearchState?
+    var searchScrollTrigger = 0
     var pendingScrollBlockIndex: Binding<Int?> = .constant(nil)
     var onToggleBookmark: ((Int) -> Void)?
     var onToggleDefaultBookmark: ((Int) -> Void)?
@@ -17,7 +18,7 @@ struct MarkdownRenderer: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 12) {
-                    ForEach(Array(document.blocks.enumerated()), id: \.element.id) { index, block in
+                    ForEach(Array(document.blocks.enumerated()), id: \.offset) { index, block in
                         BlockRow(
                             blockIndex: index,
                             hasBookmark: hasBookmark?(index) ?? false,
@@ -31,7 +32,7 @@ struct MarkdownRenderer: View {
                         ) {
                             renderBlock(block, blockIndex: index)
                         }
-                        .id("block-\(index)")
+                        .id(Self.blockScrollID(for: index))
                     }
                 }
                 .frame(maxWidth: theme.contentMaxWidth)
@@ -45,6 +46,9 @@ struct MarkdownRenderer: View {
                 if newCount > 0 {
                     scrollToCurrentMatch(with: proxy)
                 }
+            }
+            .onChange(of: searchScrollTrigger) { _, _ in
+                scrollToCurrentMatch(with: proxy)
             }
             .onChange(of: pendingScrollBlockIndex.wrappedValue) { _, newValue in
                 guard let blockIndex = newValue else { return }
@@ -64,10 +68,14 @@ struct MarkdownRenderer: View {
         }
     }
 
+    static func blockScrollID(for blockIndex: Int) -> String {
+        "block-\(blockIndex)"
+    }
+
     private func scrollToCurrentMatch(with proxy: ScrollViewProxy) {
         guard let match = searchState?.currentMatch else { return }
         withAnimation {
-            proxy.scrollTo("block-\(match.blockIndex)", anchor: .center)
+            proxy.scrollTo(Self.blockScrollID(for: match.blockIndex), anchor: .center)
         }
     }
 
@@ -81,16 +89,24 @@ struct MarkdownRenderer: View {
     // MARK: - Inline Markdown (cached)
 
     private func cachedInline(_ text: String, inBlock blockIndex: Int? = nil, textIndex: Int = 0) -> AttributedString {
+        cachedText(text, inBlock: blockIndex, textIndex: textIndex, parseMarkdown: true)
+    }
+
+    private func cachedPlain(_ text: String, inBlock blockIndex: Int? = nil, textIndex: Int = 0) -> AttributedString {
+        cachedText(text, inBlock: blockIndex, textIndex: textIndex, parseMarkdown: false)
+    }
+
+    private func cachedText(_ text: String, inBlock blockIndex: Int? = nil, textIndex: Int = 0, parseMarkdown: Bool) -> AttributedString {
         let cacheKey: String
         if let query = searchState?.query, !query.isEmpty {
             let currentMatchSignature = searchState?.currentMatch?.signature ?? "none"
-            cacheKey = "\(query)|\(blockIndex.map(String.init) ?? "none")|\(textIndex)|\(currentMatchSignature)\n\(text)"
+            cacheKey = "\(parseMarkdown ? "markdown" : "plain")|\(query)|\(blockIndex.map(String.init) ?? "none")|\(textIndex)|\(currentMatchSignature)\n\(text)"
         } else {
-            cacheKey = text
+            cacheKey = "\(parseMarkdown ? "markdown" : "plain")\n\(text)"
         }
         if let cached = Self.inlineCache[cacheKey] { return cached }
 
-        var result = (try? AttributedString(markdown: text)) ?? AttributedString(text)
+        var result = parseMarkdown ? ((try? AttributedString(markdown: text)) ?? AttributedString(text)) : AttributedString(text)
 
         if let query = searchState?.query, !query.isEmpty {
             highlightWords(in: &result, query: query, blockIndex: blockIndex, textIndex: textIndex)
@@ -194,11 +210,12 @@ struct MarkdownRenderer: View {
                         .padding(.top, 8)
                         .padding(.bottom, 4)
                 }
-                Text(code)
+                Text(cachedPlain(code, inBlock: blockIndex))
                     .font(theme.codeFont)
                     .foregroundStyle(theme.bodyColor)
                     .padding(12)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .id(matchScrollID(for: blockIndex, textIndex: 0))
             }
             .background(theme.codeBackgroundColor)
             .clipShape(RoundedRectangle(cornerRadius: 8))
