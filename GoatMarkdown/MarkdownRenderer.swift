@@ -16,7 +16,7 @@ struct MarkdownRenderer: View {
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 12) {
                     ForEach(Array(document.blocks.enumerated()), id: \.element.id) { index, block in
                         BlockRow(
                             blockIndex: index,

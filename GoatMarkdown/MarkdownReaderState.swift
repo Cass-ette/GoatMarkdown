@@ -1,5 +1,21 @@
 import SwiftUI
 
+enum OpenMode: Equatable {
+    case empty
+    case directory(rootURL: URL)
+    case singleFile(URL)
+}
+
+struct OpenRequest: Codable, Hashable, Identifiable {
+    let id: UUID
+    let path: String
+
+    init(path: String) {
+        self.id = UUID()
+        self.path = path
+    }
+}
+
 @Observable
 final class MarkdownReaderState {
     var fileTree: FileNode?
@@ -8,33 +24,49 @@ final class MarkdownReaderState {
     var isLoading = false
     var pendingScrollBlockIndex: Int?
     var bodyFontScale: Double
+    var openMode: OpenMode = .empty
     let bookmarkStore: BookmarkStore
 
     private let scanner = MarkdownFileScanner(fileManager: .default)
     private let defaults: UserDefaults
+    private static let lastOpenModeKey = "lastOpenMode"
     private static let lastFolderKey = "lastOpenedFolderPath"
     private static let lastFileKey = "lastSelectedFilePath"
     private static let bodyFontScaleKey = "bodyFontScale"
+    private static let directoryModeValue = "directory"
+    private static let singleFileModeValue = "singleFile"
     private static let minimumBodyFontScale = 0.8
     private static let maximumBodyFontScale = 1.8
     private static let bodyFontScaleStep = 0.1
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .standard, bookmarkStore: BookmarkStore = BookmarkStore()) {
         self.defaults = defaults
-        self.bookmarkStore = BookmarkStore(defaults: defaults)
+        self.bookmarkStore = bookmarkStore
         self.bodyFontScale = defaults.object(forKey: Self.bodyFontScaleKey) as? Double ?? 1.0
     }
 
     func openFolder(_ url: URL) {
         do {
             fileTree = try scanner.scan(root: url)
+            openMode = .directory(rootURL: url)
             selectedFileURL = nil
             currentDocument = nil
+            pendingScrollBlockIndex = nil
+            defaults.set(Self.directoryModeValue, forKey: Self.lastOpenModeKey)
             defaults.set(url.path, forKey: Self.lastFolderKey)
             defaults.removeObject(forKey: Self.lastFileKey)
         } catch {
             fileTree = nil
+            openMode = .empty
         }
+    }
+
+    func openFile(_ url: URL) {
+        fileTree = nil
+        openMode = .singleFile(url)
+        defaults.set(Self.singleFileModeValue, forKey: Self.lastOpenModeKey)
+        defaults.removeObject(forKey: Self.lastFolderKey)
+        selectFile(url)
     }
 
     func selectFile(_ url: URL) {
@@ -178,8 +210,7 @@ final class MarkdownReaderState {
         if isDir.boolValue {
             openFolder(url)
         } else {
-            openFolder(url.deletingLastPathComponent())
-            selectFile(url)
+            openFile(url)
         }
     }
 
@@ -201,38 +232,52 @@ final class MarkdownReaderState {
         if isDir.boolValue {
             openFolder(fileURL)
         } else {
-            let parentDir = fileURL.deletingLastPathComponent()
-            openFolder(parentDir)
-            selectFile(fileURL)
+            openFile(fileURL)
         }
     }
 
     func restoreLastSession() {
+        let lastMode = defaults.string(forKey: Self.lastOpenModeKey)
         let lastFilePath = defaults.string(forKey: Self.lastFileKey)
         let lastFolderPath = defaults.string(forKey: Self.lastFolderKey)
 
-        if let lastFilePath {
+        if lastMode == Self.singleFileModeValue, let lastFilePath {
             let fileURL = URL(fileURLWithPath: lastFilePath)
             guard FileManager.default.fileExists(atPath: lastFilePath) else {
                 defaults.removeObject(forKey: Self.lastFileKey)
-                if let lastFolderPath {
-                    let folderURL = URL(fileURLWithPath: lastFolderPath)
-                    if FileManager.default.fileExists(atPath: lastFolderPath) {
-                        openFolder(folderURL)
-                    }
-                }
                 return
             }
-            let parentDir = fileURL.deletingLastPathComponent()
-            openFolder(parentDir)
-            selectFile(fileURL)
-        } else if let lastFolderPath {
-            let folderURL = URL(fileURLWithPath: lastFolderPath)
-            guard FileManager.default.fileExists(atPath: lastFolderPath) else {
-                defaults.removeObject(forKey: Self.lastFolderKey)
-                return
-            }
-            openFolder(folderURL)
+            openFile(fileURL)
+            return
         }
+
+        if lastMode == Self.directoryModeValue, let lastFolderPath {
+            restoreDirectory(folderPath: lastFolderPath, selectedFilePath: lastFilePath)
+            return
+        }
+
+        if let lastFolderPath {
+            restoreDirectory(folderPath: lastFolderPath, selectedFilePath: lastFilePath)
+        } else if let lastFilePath {
+            let fileURL = URL(fileURLWithPath: lastFilePath)
+            guard FileManager.default.fileExists(atPath: lastFilePath) else {
+                defaults.removeObject(forKey: Self.lastFileKey)
+                return
+            }
+            openFile(fileURL)
+        }
+    }
+
+    private func restoreDirectory(folderPath: String, selectedFilePath: String?) {
+        let folderURL = URL(fileURLWithPath: folderPath)
+        guard FileManager.default.fileExists(atPath: folderPath) else {
+            defaults.removeObject(forKey: Self.lastFolderKey)
+            return
+        }
+        openFolder(folderURL)
+
+        guard let selectedFilePath,
+              FileManager.default.fileExists(atPath: selectedFilePath) else { return }
+        selectFile(URL(fileURLWithPath: selectedFilePath))
     }
 }
