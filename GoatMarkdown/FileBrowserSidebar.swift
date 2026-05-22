@@ -5,6 +5,16 @@ struct FileBrowserSidebar: View {
     let onSelect: (URL) -> Void
 
     var body: some View {
+        switch state.openMode {
+        case .singleFile:
+            bookmarkList
+        case .directory, .empty:
+            directorySidebar
+        }
+    }
+
+    @ViewBuilder
+    private var directorySidebar: some View {
         Group {
             if let tree = state.fileTree {
                 if tree.children.isEmpty {

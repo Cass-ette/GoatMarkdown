@@ -2,11 +2,47 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct ContentView: View {
-    @Bindable var state: MarkdownReaderState
+    let bookmarkStore: BookmarkStore
+    let shouldRestoreLastSession: Bool
+    let openRequest: OpenRequest?
+
+    @Environment(\.openWindow) private var openWindow
+    @State private var state: MarkdownReaderState?
     @State private var search = SearchState()
     @FocusState private var searchFieldFocused: Bool
 
+    init(
+        bookmarkStore: BookmarkStore,
+        shouldRestoreLastSession: Bool = false,
+        openRequest: OpenRequest? = nil
+    ) {
+        self.bookmarkStore = bookmarkStore
+        self.shouldRestoreLastSession = shouldRestoreLastSession
+        self.openRequest = openRequest
+    }
+
     var body: some View {
+        Group {
+            if let state {
+                content(for: state)
+            } else {
+                ProgressView()
+                    .task {
+                        let created = MarkdownReaderState(bookmarkStore: bookmarkStore)
+                        state = created
+                        if let openRequest {
+                            created.handleFileURL(URL(fileURLWithPath: openRequest.path))
+                        } else if shouldRestoreLastSession {
+                            created.restoreLastSession()
+                        }
+                    }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func content(for state: MarkdownReaderState) -> some View {
+        @Bindable var state = state
         NavigationSplitView {
             FileBrowserSidebar(state: state, onSelect: { state.selectFile($0) })
             .frame(minWidth: 200)
@@ -32,13 +68,6 @@ struct ContentView: View {
                     }
                     .onChange(of: state.selectedFileURL) { _, _ in
                         if let doc = state.currentDocument { search.search(in: doc) }
-                    }
-                    .onReceive(NotificationCenter.default.publisher(for: .toggleSearch)) { _ in
-                        search.toggle()
-                        if let doc = state.currentDocument { search.search(in: doc) }
-                    }
-                    .onReceive(NotificationCenter.default.publisher(for: .openFileCommand)) { _ in
-                        openFilePanel()
                     }
             } else if state.isLoading {
                 ProgressView()
@@ -73,12 +102,12 @@ struct ContentView: View {
                 .keyboardShortcut("=", modifiers: .command)
 
                 Button {
-                    openFilePanel()
+                    openFilePanel(in: state)
                 } label: {
                     Label("Open File", systemImage: "doc.text")
                 }
                 Button {
-                    openFolderPanel()
+                    openFolderPanel(in: state)
                 } label: {
                     Label("Open Folder", systemImage: "folder")
                 }
@@ -89,6 +118,15 @@ struct ContentView: View {
             search.isActive = true
             return .handled
         }
+        .focusedValue(\.windowCommandActions, WindowCommandActions(
+            toggleSearch: {
+                search.toggle()
+                if let doc = state.currentDocument { search.search(in: doc) }
+            },
+            openFile: { openFilePanel(in: state) },
+            openFolder: { openFolderPanel(in: state) },
+            openInNewWindow: { openInNewWindowPanel() }
+        ))
     }
 
     @ViewBuilder
@@ -154,7 +192,7 @@ struct ContentView: View {
         .padding(.trailing, 12)
     }
 
-    private func openFolderPanel() {
+    private func openFolderPanel(in state: MarkdownReaderState) {
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
@@ -166,7 +204,7 @@ struct ContentView: View {
         }
     }
 
-    private func openFilePanel() {
+    private func openFilePanel(in state: MarkdownReaderState) {
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
@@ -175,9 +213,19 @@ struct ContentView: View {
         panel.prompt = "Open"
         panel.begin { response in
             guard response == .OK, let url = panel.url else { return }
-            let parentDir = url.deletingLastPathComponent()
-            state.openFolder(parentDir)
-            state.selectFile(url)
+            state.openFile(url)
+        }
+    }
+
+    private func openInNewWindowPanel() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Open in New Window"
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            openWindow(value: OpenRequest(path: url.path))
         }
     }
 }
