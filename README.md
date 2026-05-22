@@ -4,6 +4,8 @@ A lightweight macOS Markdown reader built with SwiftUI.
 
 ## Features
 
+- 目录模式和单文件模式：目录模式显示文件树，单文件模式只显示当前文件书签
+- 多窗口独立状态：不同窗口可打开不同目录 / 文件，互不影响
 - 文件树侧栏，递归扫描 Markdown 文件并支持选中跳转
 - Markdown 渲染（标题、段落、列表、引用、表格、代码块、图片、链接、分隔线）
 - 搜索：当前命中实心高亮、其他命中半透明高亮，next/prev 自动滚动定位
@@ -18,7 +20,9 @@ A lightweight macOS Markdown reader built with SwiftUI.
 | `Cmd + F` / `/` | 打开/关闭搜索栏 |
 | `Enter`（在搜索框内） | 跳到下一处命中 |
 | `Cmd + =` / `Cmd + -` | 放大 / 缩小正文字号 |
-| `Cmd + O` | 打开文件 |
+| `Cmd + O` | 在当前窗口打开文件 |
+| `Cmd + Shift + O` | 在新窗口打开文件或目录 |
+| `Cmd + N` | 新建空窗口 |
 
 ## Requirements
 
