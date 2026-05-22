@@ -16,8 +16,8 @@ struct MarkdownRenderer: View {
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
-                    ForEach(Array(document.blocks.enumerated()), id: \.element.id) { index, block in
+                LazyVStack(alignment: .leading, spacing: 12) {
+                    ForEach(Array(document.blocks.enumerated()), id: \.offset) { index, block in
                         BlockRow(
                             blockIndex: index,
                             hasBookmark: hasBookmark?(index) ?? false,
@@ -31,7 +31,7 @@ struct MarkdownRenderer: View {
                         ) {
                             renderBlock(block, blockIndex: index)
                         }
-                        .id("block-\(index)")
+                        .id(Self.blockScrollID(for: index))
                     }
                 }
                 .frame(maxWidth: theme.contentMaxWidth)
@@ -64,10 +64,14 @@ struct MarkdownRenderer: View {
         }
     }
 
+    static func blockScrollID(for blockIndex: Int) -> String {
+        "block-\(blockIndex)"
+    }
+
     private func scrollToCurrentMatch(with proxy: ScrollViewProxy) {
         guard let match = searchState?.currentMatch else { return }
         withAnimation {
-            proxy.scrollTo("block-\(match.blockIndex)", anchor: .center)
+            proxy.scrollTo(Self.blockScrollID(for: match.blockIndex), anchor: .center)
         }
     }
 
