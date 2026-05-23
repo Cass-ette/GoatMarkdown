@@ -31,6 +31,7 @@ struct MarkdownRenderer: View {
                             }
                         ) {
                             renderBlock(block, blockIndex: index)
+                                .tint(theme.bodySelectionTint)
                         }
                         .id(Self.blockScrollID(for: index))
                     }

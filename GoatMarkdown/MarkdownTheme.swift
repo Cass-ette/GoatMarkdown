@@ -4,6 +4,7 @@ import SwiftUI
 struct MarkdownTheme {
     var bodyFontScale: Double = 1.0
     var bodyColor: Color = .primary
+    var bodySelectionTint: Color = .blue
     var headingFonts: [Int: Font] = [
         1: .title, 2: .title2, 3: .title3,
         4: .headline, 5: .headline, 6: .headline
