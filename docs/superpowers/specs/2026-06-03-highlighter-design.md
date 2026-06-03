@@ -6,16 +6,18 @@ Add a macOS-native text highlighting feature to GoatMarkdown, allowing users to 
 
 ## User Interaction
 
-### Primary Flow: Selection Popover
+### MVP Flow: Keyboard Shortcut Only
+1. User selects text in rendered Markdown (native SwiftUI text selection)
+2. Press `Cmd+Shift+H` → applies default yellow highlight
+3. Press `Cmd+Shift+H` again on highlighted text → removes highlight
+
+### Future Enhancement: Selection Popover
 1. User selects text in rendered Markdown
 2. A small toolbar appears above the selection with 5 color buttons
 3. User clicks a color → text gets highlighted with that color
 4. Clicking the same color again on highlighted text removes the highlight
 
-### Secondary Flow: Keyboard Shortcut
-1. User selects text
-2. Press `Cmd+Shift+H` → applies default yellow highlight
-3. Press again on highlighted text → removes highlight
+*Note: Selection popover is deferred due to SwiftUI Text API limitations. MVP focuses on keyboard-driven workflow.*
 
 ### Visual Feedback
 - Highlighted text renders with a semi-transparent background color
@@ -31,7 +33,13 @@ enum HighlightColor: String, Codable {
     case yellow, green, blue, pink, purple
     
     var swiftUIColor: Color {
-        // Returns semi-transparent background colors
+        switch self {
+        case .yellow: return .yellow.opacity(0.3)
+        case .green: return .green.opacity(0.3)
+        case .blue: return .blue.opacity(0.3)
+        case .pink: return .pink.opacity(0.3)
+        case .purple: return .purple.opacity(0.3)
+        }
     }
 }
 ```
@@ -44,6 +52,7 @@ struct Highlight: Codable, Equatable, Identifiable {
     let rangeStart: Int      // Character offset start
     let rangeEnd: Int        // Character offset end
     let color: HighlightColor
+    let createdAt: Date      // For potential future "recent highlights" feature
 }
 ```
 
@@ -82,10 +91,12 @@ For file `/path/to/document.md`, highlights stored in `/path/to/document.md.high
   - `find(blockIndex:range:)` — checks if range already highlighted
   - `toggle(blockIndex:range:color:)` — add or remove
 
-**3. TextSelectionHandler**
-- Detects text selection events in rendered Markdown
-- Extracts `(blockIndex, character range)` from selection
-- Shows/hides color picker popover
+**3. TextSelectionHandler (SwiftUI ViewModifier)**
+- Wraps `MarkdownRenderer` to detect text selection events
+- Tracks current selection state: `@State var selectedRange: (blockIndex: Int, textIndex: Int, range: Range<String.Index>)?`
+- Shows/hides `HighlightColorPicker` popover when selection exists
+- Interface: `.onHighlightRequest(highlightState: HighlightState)` modifier on `MarkdownRenderer`
+- **MVP Scope Decision**: Due to SwiftUI Text selection API limitations, **MVP will ship with keyboard-only interaction (`Cmd+Shift+H`)**. Selection popover will be deferred to a future iteration after we validate feasibility of selection tracking in SwiftUI Text views.
 
 **4. HighlightColorPicker (SwiftUI View)**
 - Compact horizontal row of 5 color buttons
@@ -124,14 +135,22 @@ In `MarkdownRenderer.cachedText()`:
 3. For each character range with a highlight:
    - Split `AttributedString` at range boundaries
    - Apply `.background(color.swiftUIColor)` to the range
-4. Merge with search highlighting (search = higher priority, different opacity)
+4. **Merge with search highlighting**:
+   - If search and highlight overlap, search takes precedence (layer search background on top)
+   - Search background: `.yellow.opacity(0.4)` (current match) or `.yellow.opacity(0.2)` (other matches)
+   - Highlight background: semi-transparent colors (opacity 0.3)
+   - Visual result: search match is clearly visible even over highlights
 
-### Selection Detection
+### Selection Detection (Deferred to Future Iteration)
 - SwiftUI doesn't provide native selection change callbacks for `Text` views
-- **Approach**: Use `.onContinuousHover` + `.gesture(DragGesture)` to detect mouse-up after drag
-- On mouse-up: read `NSApp.keyWindow?.firstResponder` if it's a text view, get `selectedRange`
-- Map `NSRange` back to `(blockIndex, textIndex, character range)` using visible text cache
-- **Fallback**: If selection detection proves complex, start with keyboard-only (`Cmd+Shift+H`) and defer popover to future iteration
+- **MVP Decision**: Ship keyboard-only interaction first (`Cmd+Shift+H` applies yellow highlight to current text selection)
+- **Future Enhancement**: Explore NSTextView bridging or AppKit-backed selection tracking to enable popover UI
+- Selection → highlight flow for MVP:
+  1. User selects text in rendered Markdown (native SwiftUI `.textSelection(.enabled)`)
+  2. User presses `Cmd+Shift+H`
+  3. App reads current focused NSTextView's `selectedRange` via AppKit bridge
+  4. Map `NSRange` to `(blockIndex, textIndex, character range)` using block text cache
+  5. Apply yellow highlight via `highlightState.add()`
 
 ### Popover Positioning
 - Use `.popover(isPresented:attachmentAnchor:arrowEdge:)` with `.point()` anchor
@@ -158,15 +177,16 @@ In `MarkdownRenderer.cachedText()`:
 
 5. **Multi-window isolation**
    - Each `MarkdownReaderState` has own `HighlightState`
-   - Highlights loaded per document URL
-   - Changes in one window don't affect others until reload
+   - Highlights loaded per document URL from `.highlights.json`
+   - **Sync behavior**: Changes auto-save to JSON immediately → other windows pick up changes on next document reload (explicit user action: reopen file or `Cmd+R` if we add refresh)
+   - No automatic cross-window sync (consistent with current bookmark behavior)
 
 ## Testing Strategy
 
 ### Unit Tests
-- `HighlightStoreTests`: JSON encoding/decoding, file I/O
+- `HighlightStoreTests`: JSON encoding/decoding, file I/O, corrupted JSON handling (fallback: ignore and start fresh)
 - `HighlightStateTests`: add/remove/toggle/find operations
-- `HighlightRenderingTests`: character range → background color application
+- `HighlightRenderingLogicTests`: unit test for the `AttributedString` background application logic (not full UI rendering — just the string manipulation)
 
 ### Manual Testing
 - Select text → click color → verify background appears
@@ -187,9 +207,10 @@ In `MarkdownRenderer.cachedText()`:
 - `GoatMarkdown/Highlight.swift`
 - `GoatMarkdown/HighlightState.swift`
 - `GoatMarkdown/HighlightStore.swift`
-- `GoatMarkdown/HighlightColorPicker.swift`
+- `GoatMarkdown/HighlightColorPicker.swift` (deferred to future iteration with popover UI)
 - `GoatMarkdownTests/HighlightStoreTests.swift`
 - `GoatMarkdownTests/HighlightStateTests.swift`
+- `GoatMarkdownTests/HighlightRenderingLogicTests.swift`
 
 ## Files to Modify
 - `GoatMarkdown/MarkdownRenderer.swift` — add highlight rendering
