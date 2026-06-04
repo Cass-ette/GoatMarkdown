@@ -49,30 +49,34 @@ enum HighlightColor: String, Codable {
 struct Highlight: Codable, Equatable, Identifiable {
     let id: UUID
     let blockIndex: Int      // Which markdown block
-    let rangeStart: Int      // Character offset start
+    let textIndex: Int       // Which text segment within block (e.g., list item index, table cell index)
+    let rangeStart: Int      // Character offset start (in rendered plain text of the segment)
     let rangeEnd: Int        // Character offset end
     let color: HighlightColor
     let createdAt: Date      // For potential future "recent highlights" feature
 }
 ```
 
-### Persistence Format (JSON Sidecar)
-For file `/path/to/document.md`, highlights stored in `/path/to/document.md.highlights.json`:
+### Persistence Format (UserDefaults, same as BookmarkStore)
+Storage key: `highlights.byFilePath.v1`
+Value: `[String: [Highlight]]` — dictionary mapping file path to its highlights list
 
 ```json
 {
-  "highlights": [
+  "/Users/x/docs/notes.md": [
     {
       "id": "uuid-here",
       "blockIndex": 3,
+      "textIndex": 0,
       "rangeStart": 12,
       "rangeEnd": 45,
       "color": "yellow"
     }
-  ],
-  "version": 1
+  ]
 }
 ```
+
+**Storage Decision (User Confirmed)**: Use UserDefaults to match the existing `BookmarkStore` pattern. Avoid filesystem pollution from sidecar files, simpler MVP, consistent with current codebase. Future enhancement can add sidecar export for portability.
 
 ## Architecture
 
