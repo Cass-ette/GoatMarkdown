@@ -22,3 +22,6 @@ GoatMarkdown.xcodeproj/
 task_plan.md
 findings.md
 progress.md
+
+# Worktrees (project-local isolation)
+.worktrees/
