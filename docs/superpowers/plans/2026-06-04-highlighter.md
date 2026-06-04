@@ -2,44 +2,29 @@
 
 > **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add a macOS-native text highlighter to GoatMarkdown that lets users mark text with 5 preset colors via `Cmd+Shift+H` keyboard shortcut, with persistence via JSON sidecar files.
+**Goal:** Add a macOS-native text highlighter to GoatMarkdown that lets users mark text with 5 preset colors via `Cmd+Shift+H` keyboard shortcut, with persistence via UserDefaults.
 
-**Architecture:** 
-- `HighlightColor` enum + `Highlight` data model
-- `HighlightStore` (Codable, UserDefaults-backed like `BookmarkStore`)
+**Architecture:**
+- `HighlightColor` enum + `Highlight` data model (with `textIndex` for block-vs-segment scoping)
+- `HighlightStore` (Codable, UserDefaults-backed, appended to `Bookmark.swift` per existing pattern)
 - `HighlightState` (`@Observable`, in-memory state per document)
-- `HighlightState` integrated into `MarkdownReaderState`
-- `MarkdownRenderer.cachedText()` extended to apply background colors via `AttributedString.backgroundColor`
-- `Cmd+Shift+H` keyboard handler in `ContentView` reads current text selection, calls `highlightState.add()`
+- `MarkdownReaderState` integrates `HighlightState` — loads on file select, saves on toggle
+- `MarkdownRenderer.cachedText()` applies background colors via `AttributedString.backgroundColor`, layered **before** search highlights so search remains visible on top
+- `Cmd+Shift+H` keyboard handler in `ContentView` reads current NSTextView selection, maps to (blockIndex, textIndex, range) using **rendered** plain text
 
 **Tech Stack:** Swift 5.9+, SwiftUI, AppKit, Xcode 16, macOS 15.0+
 
----
+**Storage Decision:** UserDefaults (not JSON sidecar) — consistent with existing `BookmarkStore`, simpler MVP, no filesystem pollution. User explicitly approved.
 
-## File Structure
-
-**New files:**
-- `GoatMarkdown/HighlightColor.swift` — enum + `swiftUIColor` accessor
-- `GoatMarkdown/Highlight.swift` — `Highlight` struct
-- `GoatMarkdown/HighlightState.swift` — `@Observable` state class with add/remove/toggle/find
-- `GoatMarkdownTests/HighlightStateTests.swift` — unit tests for state logic
-- `GoatMarkdownTests/HighlightStoreTests.swift` — unit tests for persistence
-
-**Modified files:**
-- `GoatMarkdown/Bookmark.swift` — add `HighlightStore` class (keep near `BookmarkStore` per existing pattern)
-- `GoatMarkdown/MarkdownReaderState.swift` — add `HighlightState` integration, load on file select
-- `GoatMarkdown/MarkdownRenderer.swift` — accept `highlightState` parameter, apply background colors in `cachedText()`
-- `GoatMarkdown/ContentView.swift` — pass `highlightState` to `MarkdownRenderer`, wire `Cmd+Shift+H` keyboard shortcut
-- `README.md` — document highlighter feature + `Cmd+Shift+H` shortcut
+**File Structure Note:** `HighlightStore` is appended to `Bookmark.swift` (alongside `BookmarkStore`) rather than as a separate file. This deviates from the original spec file list but follows the existing project pattern of grouping persistence stores.
 
 **Out of scope (deferred to future iteration):**
-- Selection popover UI (requires NSTextView bridging — too much MVP risk)
-- `HighlightColorPicker.swift`
-- Color button UI for changing highlight color (MVP = yellow only via keyboard)
+- Selection popover UI with 5 color buttons (requires NSTextView bridging — too much MVP risk)
+- Multi-color selection (MVP is yellow only via keyboard)
 
 ---
 
-## Chunk 1: Data Model & Persistence (Tasks 1-2)
+## Chunk 1: Data Model (Tasks 1-2)
 
 ### Task 1: HighlightColor enum
 
@@ -60,11 +45,11 @@ enum HighlightColor: String, Codable, CaseIterable, Equatable {
 
     var swiftUIColor: Color {
         switch self {
-        case .yellow: return Color.yellow.opacity(0.35)
-        case .green: return Color.green.opacity(0.35)
-        case .blue: return Color.blue.opacity(0.35)
-        case .pink: return Color.pink.opacity(0.35)
-        case .purple: return Color.purple.opacity(0.35)
+        case .yellow: return Color.yellow.opacity(0.3)
+        case .green: return Color.green.opacity(0.3)
+        case .blue: return Color.blue.opacity(0.3)
+        case .pink: return Color.pink.opacity(0.3)
+        case .purple: return Color.purple.opacity(0.3)
         }
     }
 }
@@ -84,10 +69,12 @@ git commit -m "feat: add HighlightColor enum with 5 preset colors"
 
 ---
 
-### Task 2: Highlight struct
+### Task 2: Highlight struct (with textIndex)
 
 **Files:**
 - Create: `GoatMarkdown/Highlight.swift`
+
+`textIndex` is required because blocks like lists and tables have multiple text segments — without it, a highlight on list item 0 would render on item 1 too.
 
 - [ ] **Step 1: Create Highlight struct file**
 
@@ -132,7 +119,7 @@ Expected: BUILD SUCCEEDED
 
 ```bash
 git add GoatMarkdown/Highlight.swift
-git commit -m "feat: add Highlight data model"
+git commit -m "feat: add Highlight data model with textIndex"
 ```
 
 ---
@@ -142,7 +129,7 @@ git commit -m "feat: add Highlight data model"
 ### Task 3: HighlightStore class
 
 **Files:**
-- Modify: `GoatMarkdown/Bookmark.swift:73` (append after BookmarkStore closing brace)
+- Modify: `GoatMarkdown/Bookmark.swift` (append after BookmarkStore closing brace at end of file)
 
 - [ ] **Step 1: Append HighlightStore class to Bookmark.swift**
 
@@ -194,7 +181,7 @@ Expected: BUILD SUCCEEDED
 
 ```bash
 git add GoatMarkdown/Bookmark.swift
-git commit -m "feat: add HighlightStore for sidecar persistence"
+git commit -m "feat: add HighlightStore for UserDefaults persistence"
 ```
 
 ---
@@ -462,151 +449,23 @@ git commit -m "test: add HighlightState unit tests"
 
 ---
 
-### Task 6b: HighlightRenderingLogic unit tests (TDD)
-
-**Files:**
-- Create: `GoatMarkdownTests/HighlightRenderingLogicTests.swift`
-
-This validates the offset-mapping convention: `applyHighlights` and the keyboard handler must both operate on **rendered** plain text (post-markdown), not raw block text.
-
-- [ ] **Step 1: Write failing tests**
-
-```swift
-import Foundation
-import SwiftUI
-import XCTest
-@testable import GoatMarkdown
-
-@MainActor
-final class HighlightRenderingLogicTests: XCTestCase {
-    func testRenderedPlainTextStripsMarkdownSyntax() {
-        let text = "**bold** text"
-        let rendered = renderedPlainText(text)
-        XCTAssertEqual(rendered, "bold text")
-    }
-
-    func testApplyHighlightsUsesRenderedOffsetsForInlineMarkdown() {
-        // Paragraph "**bold** text" renders to "bold text" (9 chars).
-        // A highlight on "bold" should be at rendered offsets 0..<4, not raw offsets 2..<6.
-        let document = MarkdownDocument(blocks: [.paragraph(text: "**bold** text")], rawText: "")
-        let state = HighlightState()
-        let highlight = Highlight(
-            blockIndex: 0,
-            textIndex: 0,
-            rangeStart: 0,
-            rangeEnd: 4,
-            color: .yellow
-        )
-        state.add(highlight)
-
-        let renderer = MarkdownRenderer(document: document, highlightState: state)
-        let attributed = renderer.renderAttributedStringForTesting(text: "**bold** text", blockIndex: 0, textIndex: 0)
-        let background = backgroundColorRange(in: attributed)
-        XCTAssertEqual(background?.lowerBound, 0)
-        XCTAssertEqual(background?.upperBound, 4)
-    }
-
-    func testApplyHighlightsIgnoresOutOfRangeOffsets() {
-        // If somehow a stale highlight has rangeEnd > rendered length, it should be skipped
-        // (not crash, not apply to wrong text).
-        let document = MarkdownDocument(blocks: [.paragraph(text: "short")], rawText: "")
-        let state = HighlightState()
-        state.add(Highlight(blockIndex: 0, textIndex: 0, rangeStart: 0, rangeEnd: 100, color: .yellow))
-
-        let renderer = MarkdownRenderer(document: document, highlightState: state)
-        let attributed = renderer.renderAttributedStringForTesting(text: "short", blockIndex: 0, textIndex: 0)
-        // The whole string should NOT be highlighted (would be the bug)
-        let count = attributed.runs.filter { $0.backgroundColor != nil }.count
-        XCTAssertEqual(count, 0)
-    }
-
-    func testApplyHighlightsRespectsTextIndexScope() {
-        // List with two items, each its own textIndex. A highlight on item 0 must not
-        // affect item 1.
-        let document = MarkdownDocument(
-            blocks: [.unorderedList(items: ["alpha", "beta"])],
-            rawText: ""
-        )
-        let state = HighlightState()
-        state.add(Highlight(blockIndex: 0, textIndex: 0, rangeStart: 0, rangeEnd: 5, color: .yellow))
-
-        let renderer = MarkdownRenderer(document: document, highlightState: state)
-        let alphaAttributed = renderer.renderAttributedStringForTesting(text: "alpha", blockIndex: 0, textIndex: 0)
-        let betaAttributed = renderer.renderAttributedStringForTesting(text: "beta", blockIndex: 0, textIndex: 1)
-
-        XCTAssertNotNil(backgroundColorRange(in: alphaAttributed))
-        XCTAssertNil(backgroundColorRange(in: betaAttributed))
-    }
-
-    // MARK: - Helpers
-
-    private func renderedPlainText(_ text: String) -> String {
-        let attributed = (try? AttributedString(markdown: text)) ?? AttributedString(text)
-        return String(attributed.characters)
-    }
-
-    private func backgroundColorRange(in attributed: AttributedString) -> Range<Int>? {
-        let plain = String(attributed.characters) as NSString
-        let fullRange = NSRange(location: 0, length: plain.length)
-        guard let range = Range(fullRange, in: attributed) else { return nil }
-        // Find contiguous run with non-nil backgroundColor
-        var lower: Int? = nil
-        var upper: Int? = nil
-        for run in attributed[range].runs {
-            guard run.backgroundColor != nil else { continue }
-            let start = attributed.characters.distance(from: attributed.characters.startIndex, to: run.range.lowerBound)
-            let end = attributed.characters.distance(from: attributed.characters.startIndex, to: run.range.upperBound)
-            if lower == nil { lower = start }
-            upper = end
-        }
-        guard let l = lower, let u = upper else { return nil }
-        return l..<u
-    }
-}
-```
-
-- [ ] **Step 2: Add a test-only helper to MarkdownRenderer**
-
-In `GoatMarkdown/MarkdownRenderer.swift`, add this internal method (placed near the other test helpers or in an `internal` extension):
-
-```swift
-    func renderAttributedStringForTesting(text: String, blockIndex: Int, textIndex: Int) -> AttributedString {
-        return cachedText(text, inBlock: blockIndex, textIndex: textIndex, parseMarkdown: true)
-    }
-```
-
-Note: This exposes the cache, but it's `internal` so only test target can access.
-
-- [ ] **Step 3: Run tests to verify they pass**
-
-Run: `xcodebuild test -project GoatMarkdown.xcodeproj -scheme GoatMarkdown -only-testing:GoatMarkdownTests/HighlightRenderingLogicTests`
-Expected: 4 tests passed
-
-- [ ] **Step 4: Commit**
-
-```bash
-git add GoatMarkdownTests/HighlightRenderingLogicTests.swift GoatMarkdown/MarkdownRenderer.swift
-git commit -m "test: add HighlightRenderingLogic tests for offset mapping"
-```
-
----
+## Chunk 4: State Integration (Tasks 7-8)
 
 ### Task 7: Integrate HighlightState into MarkdownReaderState
 
 **Files:**
-- Modify: `GoatMarkdown/MarkdownReaderState.swift:42-46` (init), `:72-87` (selectFile), add property
+- Modify: `GoatMarkdown/MarkdownReaderState.swift`
 
 - [ ] **Step 1: Add highlightStore property and init parameter**
 
 In `GoatMarkdown/MarkdownReaderState.swift`, modify:
 
-Line 28 — add property after `let bookmarkStore: BookmarkStore`:
+After line 28 (`let bookmarkStore: BookmarkStore`), add:
 ```swift
-    let bookmarkStore: BookmarkStore
     let highlightStore: HighlightStore
 ```
 
-Line 42-46 — modify init signature and body:
+Modify the init signature (around line 42) to:
 ```swift
     init(defaults: UserDefaults = .standard, bookmarkStore: BookmarkStore = BookmarkStore(), highlightStore: HighlightStore = HighlightStore()) {
         self.defaults = defaults
@@ -625,38 +484,20 @@ After line 27 (`var openMode: OpenMode = .empty`), add:
 
 - [ ] **Step 3: Load highlights in selectFile**
 
-In `selectFile(_ url: URL)` method (line 72-87), add at the end before `defer`:
+In `selectFile(_ url: URL)` method, add inside the `do` block before the end:
 ```swift
         let stored = highlightStore.highlights(for: url.path)
         highlightState.load(stored)
 ```
 
-Full method should look like:
+And in the `catch` block, add:
 ```swift
-    func selectFile(_ url: URL) {
-        selectedFileURL = url
-        isLoading = true
-        defer { isLoading = false }
-
-        do {
-            let text = try String(contentsOf: url, encoding: .utf8)
-            let document = MarkdownParser.parse(text)
-            currentDocument = document
-            defaults.set(url.path, forKey: Self.lastFileKey)
-            pendingScrollBlockIndex = resolvedDefaultBookmarkIndex(in: document, filePath: url.path)
-            let stored = highlightStore.highlights(for: url.path)
-            highlightState.load(stored)
-        } catch {
-            currentDocument = MarkdownDocument(blocks: [.paragraph(text: "Unable to read file: \(error.localizedDescription)")], rawText: "")
-            pendingScrollBlockIndex = nil
-            highlightState.load([])
-        }
-    }
+        highlightState.load([])
 ```
 
-- [ ] **Step 4: Add save method**
+- [ ] **Step 4: Add saveHighlights method**
 
-After `toggleDefaultBookmark(for:)` method (~line 191), add:
+After `toggleDefaultBookmark(for:)` method, add:
 ```swift
     func saveHighlights() {
         guard let filePath = selectedFileURL?.path else { return }
@@ -678,14 +519,14 @@ git commit -m "feat: integrate HighlightState into MarkdownReaderState"
 
 ---
 
-### Task 8: Wire highlight persistence on state changes
+### Task 8: Add toggleHighlight method
 
 **Files:**
-- Modify: `GoatMarkdown/MarkdownReaderState.swift` — add helper to persist after state changes
+- Modify: `GoatMarkdown/MarkdownReaderState.swift`
 
 - [ ] **Step 1: Add highlighter toggle method**
 
-After the `saveHighlights()` method added in Task 7, add:
+After `saveHighlights()`, add:
 ```swift
     func toggleHighlight(blockIndex: Int, textIndex: Int, range: Range<Int>) {
         _ = highlightState.toggle(blockIndex: blockIndex, textIndex: textIndex, range: range)
@@ -707,135 +548,16 @@ git commit -m "feat: add toggleHighlight method to MarkdownReaderState"
 
 ---
 
-## Chunk 4: State Integration (Tasks 7-8b)
+## Chunk 5: Rendering (Tasks 9-11)
 
 ### Task 9: Add highlightState parameter to MarkdownRenderer
 
 **Files:**
-- Modify: `GoatMarkdown/MarkdownRenderer.swift:3-15` (struct definition)
+- Modify: `GoatMarkdown/MarkdownRenderer.swift:3-15`
 
 - [ ] **Step 1: Add highlightState property to MarkdownRenderer**
 
-In `MarkdownRenderer` struct, after `var searchState: SearchState?` (line 6), add:
-```swift
-    var highlightState: HighlightState?
-```
-
-- [ ] **Step 2: Build to verify compilation**
-
-Run: `xcodebuild build -project GoatMarkdown.xcodeproj -scheme GoatMarkdown -configuration Debug`
-Expected: BUILD SUCCEEDED
-
-- [ ] **Step 3: Commit**
-
-```bash
-git add GoatMarkdown/MarkdownRenderer.swift
-git commit -m "feat: add highlightState parameter to MarkdownRenderer"
-```
-
----
-
-### Task 10: Apply highlight backgrounds in cachedText
-
-**Files:**
-- Modify: `GoatMarkdown/MarkdownRenderer.swift:100-119` (cachedText), `:121-142` (highlightWords)
-
-- [ ] **Step 1: Add highlightColors function**
-
-After `highlightWords` method (line 142), add:
-```swift
-    private func applyHighlights(
-        in attributed: inout AttributedString,
-        blockIndex: Int?,
-        textIndex: Int
-    ) {
-        guard let blockIndex, let highlightState else { return }
-        let highlights = highlightState.highlights(in: blockIndex, textIndex: textIndex)
-        guard !highlights.isEmpty else { return }
-
-        let plain = String(attributed.characters)
-        guard !plain.isEmpty else { return }
-
-        let nsString = plain as NSString
-        for highlight in highlights {
-            guard highlight.rangeStart >= 0,
-                  highlight.rangeEnd <= nsString.length,
-                  highlight.rangeStart < highlight.rangeEnd else { continue }
-
-            let nsRange = NSRange(location: highlight.rangeStart, length: highlight.rangeEnd - highlight.rangeStart)
-            guard let attrRange = Range(nsRange, in: attributed) else { continue }
-
-            attributed[attrRange].backgroundColor = highlight.color.swiftUIColor
-        }
-    }
-```
-
-- [ ] **Step 2: Call applyHighlights in cachedText**
-
-In `cachedText` method (line 100-119), modify the result processing block. Find:
-```swift
-        if let query = searchState?.query, !query.isEmpty {
-            highlightWords(in: &result, query: query, blockIndex: blockIndex, textIndex: textIndex)
-        }
-```
-
-Add after it (before the cache store):
-```swift
-        if let blockIndex {
-            applyHighlights(in: &result, blockIndex: blockIndex, textIndex: textIndex)
-        }
-```
-
-- [ ] **Step 3: Update cache key to include highlight state**
-
-In `cachedText` method, modify the `cacheKey` construction. Replace:
-```swift
-        if let query = searchState?.query, !query.isEmpty {
-            let currentMatchSignature = searchState?.currentMatch?.signature ?? "none"
-            cacheKey = "\(parseMarkdown ? "markdown" : "plain")|\(query)|\(blockIndex.map(String.init) ?? "none")|\(textIndex)|\(currentMatchSignature)\n\(text)"
-        } else {
-            cacheKey = "\(parseMarkdown ? "markdown" : "plain")\n\(text)"
-        }
-```
-
-With:
-```swift
-        let highlightFingerprint = highlightState
-            .map { $0.highlights(in: blockIndex ?? -1, textIndex: textIndex) }
-            .map { $0.map { "\($0.id.uuidString)|\($0.rangeStart)|\($0.rangeEnd)|\($0.color.rawValue)" }.joined(separator: ",") }
-            ?? ""
-        if let query = searchState?.query, !query.isEmpty {
-            let currentMatchSignature = searchState?.currentMatch?.signature ?? "none"
-            cacheKey = "\(parseMarkdown ? "markdown" : "plain")|\(query)|\(blockIndex.map(String.init) ?? "none")|\(textIndex)|\(currentMatchSignature)|\(highlightFingerprint)\n\(text)"
-        } else {
-            cacheKey = "\(parseMarkdown ? "markdown" : "plain")|\(blockIndex.map(String.init) ?? "none")|\(highlightFingerprint)\n\(text)"
-        }
-```
-
-- [ ] **Step 4: Build to verify compilation**
-
-Run: `xcodebuild build -project GoatMarkdown.xcodeproj -scheme GoatMarkdown -configuration Debug`
-Expected: BUILD SUCCEEDED
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add GoatMarkdown/MarkdownRenderer.swift
-git commit -m "feat: apply highlight background colors in MarkdownRenderer"
-```
-
----
-
-## Chunk 5: Rendering (Tasks 9-10)
-
-### Task 9: Add highlightState parameter to MarkdownRenderer
-
-**Files:**
-- Modify: `GoatMarkdown/MarkdownRenderer.swift:3-15` (struct definition)
-
-- [ ] **Step 1: Add highlightState property to MarkdownRenderer**
-
-In `MarkdownRenderer` struct, after `var searchState: SearchState?` (line 6), add:
+In `MarkdownRenderer` struct, after `var searchState: SearchState?`, add:
 ```swift
     var highlightState: HighlightState?
 ```
@@ -889,19 +611,24 @@ After `highlightWords` method (line 142), add:
     }
 ```
 
-- [ ] **Step 2: Call applyHighlights in cachedText**
+- [ ] **Step 2: Call applyHighlights BEFORE highlightWords in cachedText**
 
-In `cachedText` method (line 100-119), modify the result processing block. Find:
+**Order matters**: applyHighlights first, then highlightWords on top. This ensures search matches are visible on top of highlight backgrounds (per spec).
+
+In `cachedText` method, find:
 ```swift
         if let query = searchState?.query, !query.isEmpty {
             highlightWords(in: &result, query: query, blockIndex: blockIndex, textIndex: textIndex)
         }
 ```
 
-Add after it (before the cache store):
+Replace with:
 ```swift
         if let blockIndex {
             applyHighlights(in: &result, blockIndex: blockIndex, textIndex: textIndex)
+        }
+        if let query = searchState?.query, !query.isEmpty {
+            highlightWords(in: &result, query: query, blockIndex: blockIndex, textIndex: textIndex)
         }
 ```
 
@@ -945,40 +672,127 @@ git commit -m "feat: apply highlight background colors in MarkdownRenderer"
 
 ---
 
-## Chunk 6: Keyboard Shortcut (Tasks 11-12)
-
-### Task 11: Wire Cmd+Shift+H shortcut in ContentView
+### Task 11: HighlightRenderingLogic tests (TDD with regression coverage)
 
 **Files:**
-- Modify: `GoatMarkdown/ContentView.swift:51-62` (MarkdownRenderer init), add state for selection
+- Create: `GoatMarkdownTests/HighlightRenderingLogicTests.swift`
+- Modify: `GoatMarkdown/MarkdownRenderer.swift` (add test helper)
 
-- [ ] **Step 1: Add selection state to ContentView**
+This validates the critical offset-mapping convention: `applyHighlights` and the keyboard handler must both operate on **rendered** plain text (post-markdown), not raw block text.
 
-After `@State private var searchScrollTrigger = 0` (line 12), add:
+- [ ] **Step 1: Add test-only helper to MarkdownRenderer**
+
+In `GoatMarkdown/MarkdownRenderer.swift`, add this `internal` method (placed near other internal accessors, e.g., right after the `blockScrollID` static method):
+
 ```swift
-    @State private var currentTextSelection: TextSelection?
+    func renderAttributedStringForTesting(text: String, blockIndex: Int, textIndex: Int) -> AttributedString {
+        return cachedText(text, inBlock: blockIndex, textIndex: textIndex, parseMarkdown: true)
+    }
 ```
 
-- [ ] **Step 2: Pass highlightState to MarkdownRenderer**
+- [ ] **Step 2: Write tests**
 
-In `ContentView`'s `content(for:)` method (line 51-62), modify the `MarkdownRenderer` call:
+Create `GoatMarkdownTests/HighlightRenderingLogicTests.swift`:
 
-Find:
 ```swift
-                MarkdownRenderer(
-                    document: document,
-                    theme: MarkdownTheme(bodyFontScale: state.bodyFontScale),
-                    searchState: search,
-                    searchScrollTrigger: searchScrollTrigger,
-                    pendingScrollBlockIndex: $state.pendingScrollBlockIndex,
-                    onToggleBookmark: { state.toggleBookmark(for: $0) },
-                    onToggleDefaultBookmark: { state.toggleDefaultBookmark(for: $0) },
-                    hasBookmark: { state.hasBookmark(for: $0) },
-                    isDefaultBookmark: { state.isDefaultBookmark(for: $0) }
-                )
+import Foundation
+import SwiftUI
+import XCTest
+@testable import GoatMarkdown
+
+@MainActor
+final class HighlightRenderingLogicTests: XCTestCase {
+    func testRenderedPlainTextStripsMarkdownSyntax() {
+        let text = "**bold** text"
+        let attributed = (try? AttributedString(markdown: text)) ?? AttributedString(text)
+        XCTAssertEqual(String(attributed.characters), "bold text")
+    }
+
+    func testApplyHighlightsUsesRenderedOffsetsForInlineMarkdown() {
+        // Paragraph "**bold** text" renders to "bold text" (9 chars).
+        // A highlight on "bold" should be at rendered offsets 0..<4, not raw offsets 2..<6.
+        let document = MarkdownDocument(blocks: [.paragraph(text: "**bold** text")], rawText: "")
+        let state = HighlightState()
+        state.add(Highlight(blockIndex: 0, textIndex: 0, rangeStart: 0, rangeEnd: 4, color: .yellow))
+
+        let renderer = MarkdownRenderer(document: document, highlightState: state)
+        let attributed = renderer.renderAttributedStringForTesting(text: "**bold** text", blockIndex: 0, textIndex: 0)
+        let background = backgroundColorRange(in: attributed)
+        XCTAssertEqual(background?.lowerBound, 0)
+        XCTAssertEqual(background?.upperBound, 4)
+    }
+
+    func testApplyHighlightsIgnoresOutOfRangeOffsets() {
+        // Stale highlight with rangeEnd > rendered length should be skipped (not crash, not apply wrong).
+        let document = MarkdownDocument(blocks: [.paragraph(text: "short")], rawText: "")
+        let state = HighlightState()
+        state.add(Highlight(blockIndex: 0, textIndex: 0, rangeStart: 0, rangeEnd: 100, color: .yellow))
+
+        let renderer = MarkdownRenderer(document: document, highlightState: state)
+        let attributed = renderer.renderAttributedStringForTesting(text: "short", blockIndex: 0, textIndex: 0)
+        let count = attributed.runs.filter { $0.backgroundColor != nil }.count
+        XCTAssertEqual(count, 0)
+    }
+
+    func testApplyHighlightsRespectsTextIndexScope() {
+        // List with two items, each its own textIndex. Highlight on item 0 must not affect item 1.
+        let document = MarkdownDocument(
+            blocks: [.unorderedList(items: ["alpha", "beta"])],
+            rawText: ""
+        )
+        let state = HighlightState()
+        state.add(Highlight(blockIndex: 0, textIndex: 0, rangeStart: 0, rangeEnd: 5, color: .yellow))
+
+        let renderer = MarkdownRenderer(document: document, highlightState: state)
+        let alphaAttributed = renderer.renderAttributedStringForTesting(text: "alpha", blockIndex: 0, textIndex: 0)
+        let betaAttributed = renderer.renderAttributedStringForTesting(text: "beta", blockIndex: 0, textIndex: 1)
+
+        XCTAssertNotNil(backgroundColorRange(in: alphaAttributed))
+        XCTAssertNil(backgroundColorRange(in: betaAttributed))
+    }
+
+    private func backgroundColorRange(in attributed: AttributedString) -> Range<Int>? {
+        var lower: Int? = nil
+        var upper: Int? = nil
+        let chars = attributed.characters
+        for run in attributed.runs {
+            guard run.backgroundColor != nil else { continue }
+            let start = chars.distance(from: chars.startIndex, to: run.range.lowerBound)
+            let end = chars.distance(from: chars.startIndex, to: run.range.upperBound)
+            if lower == nil { lower = start }
+            upper = end
+        }
+        guard let l = lower, let u = upper else { return nil }
+        return l..<u
+    }
+}
 ```
 
-Replace with:
+- [ ] **Step 3: Run tests to verify they pass**
+
+Run: `xcodebuild test -project GoatMarkdown.xcodeproj -scheme GoatMarkdown -only-testing:GoatMarkdownTests/HighlightRenderingLogicTests`
+Expected: 4 tests passed
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add GoatMarkdownTests/HighlightRenderingLogicTests.swift GoatMarkdown/MarkdownRenderer.swift
+git commit -m "test: add HighlightRenderingLogic tests for offset mapping"
+```
+
+---
+
+## Chunk 6: Keyboard Shortcut (Tasks 12-13)
+
+### Task 12: Wire Cmd+Shift+H shortcut in ContentView
+
+**Files:**
+- Modify: `GoatMarkdown/ContentView.swift`
+
+- [ ] **Step 1: Pass highlightState to MarkdownRenderer**
+
+In `ContentView`'s `content(for:)` method, modify the `MarkdownRenderer` call to add the `highlightState` parameter at the end:
+
 ```swift
                 MarkdownRenderer(
                     document: document,
@@ -994,9 +808,9 @@ Replace with:
                 )
 ```
 
-- [ ] **Step 3: Add Cmd+Shift+H handler with focus guard**
+- [ ] **Step 2: Add Cmd+Shift+H handler with focus guard**
 
-After `.onKeyPress(.init("/"))` block (line 118-122), add:
+After `.onKeyPress(.init("/"))` block, add:
 ```swift
         .onKeyPress("h", modifiers: [.command, .shift]) {
             guard state.currentDocument != nil else { return .ignored }
@@ -1007,16 +821,16 @@ After `.onKeyPress(.init("/"))` block (line 118-122), add:
         }
 ```
 
-- [ ] **Step 4: Add applyHighlightFromSelection helper (using rendered text)**
+- [ ] **Step 3: Add applyHighlightFromSelection helper using rendered text**
 
-After `openInNewWindowPanel()` method (line 234-244), add:
+After `openInNewWindowPanel()` method, add:
 
 ```swift
     private func applyHighlightFromSelection(in state: MarkdownReaderState) {
-        // MVP: read NSTextView selection and map it to (blockIndex, textIndex, range) using rendered plain text.
-        // This is critical: offsets must be in RENDERED text (after AttributedString(markdown:) strips formatting),
-        // not raw block text (which includes **, *, [, etc.). SearchState already uses this convention via
-        // extractSearchableTexts + renderedPlainText.
+        // MVP: read NSTextView selection and map to (blockIndex, textIndex, range) using RENDERED
+        // plain text. Critical: offsets must be in post-markdown text (what user sees in NSTextView
+        // and what applyHighlights() expects), not raw block text (which has **, *, [, etc.).
+        // This mirrors SearchState's extractSearchableTexts + renderedPlainText convention.
         guard let textView = NSApp.keyWindow?.firstResponder as? NSTextView else { return }
         guard let firstRange = textView.selectedRanges.first?.rangeValue,
               firstRange.location != NSNotFound,
@@ -1024,14 +838,10 @@ After `openInNewWindowPanel()` method (line 234-244), add:
 
         guard let document = state.currentDocument else { return }
 
-        // Walk through the same per-segment text representation the renderer uses for search.
-        // Each (blockIndex, textIndex) segment is one Text view in the renderer.
         var characterOffset = 0
         for (blockIndex, block) in document.blocks.enumerated() {
             let segmentTexts = extractSearchableTexts(from: block)
             for (textIndex, rawText) in segmentTexts.enumerated() {
-                // Use rendered plain text (markdown syntax stripped) so offsets match what the
-                // user sees in the NSTextView and what applyHighlights() expects.
                 let renderedText = renderedPlainText(rawText)
                 let segmentLength = (renderedText as NSString).length
                 let segmentStart = characterOffset
@@ -1073,16 +883,16 @@ After `openInNewWindowPanel()` method (line 234-244), add:
     }
 ```
 
-- [ ] **Step 5: Add import AppKit if missing**
+- [ ] **Step 4: Add import AppKit if missing**
 
 Check top of `ContentView.swift`. If `import AppKit` is missing, add it.
 
-- [ ] **Step 6: Build to verify compilation**
+- [ ] **Step 5: Build to verify compilation**
 
 Run: `xcodebuild build -project GoatMarkdown.xcodeproj -scheme GoatMarkdown -configuration Debug`
 Expected: BUILD SUCCEEDED
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add GoatMarkdown/ContentView.swift
@@ -1091,16 +901,16 @@ git commit -m "feat: add Cmd+Shift+H shortcut for highlighting selection"
 
 ---
 
-### Task 12: Update README
+### Task 13: Update README
 
 **Files:**
 - Modify: `README.md`
 
 - [ ] **Step 1: Add highlighter feature to Features list**
 
-In `README.md`, after the "书签" line (line 12), add:
+In `README.md`, after the "书签" line, add:
 ```markdown
-- 荧光笔：选中文字后按 `Cmd + Shift + H` 添加黄色高亮，再次按相同快捷键移除
+- 荧光笔：选中文字后按 `Cmd + Shift + H` 添加黄色高亮，再次按相同快捷键移除（高亮绑定字符位置，文件外部编辑后可能错位）
 ```
 
 - [ ] **Step 2: Add Cmd+Shift+H to keyboard shortcuts table**
@@ -1119,9 +929,9 @@ git commit -m "docs: document highlighter feature and Cmd+Shift+H shortcut"
 
 ---
 
-## Chunk 7: Manual Testing & Polish (Task 13)
+## Chunk 7: Manual Testing & Polish (Task 14)
 
-### Task 13: Manual test pass
+### Task 14: Manual test pass
 
 - [ ] **Step 1: Build the app**
 
@@ -1131,19 +941,50 @@ Expected: BUILD SUCCEEDED
 - [ ] **Step 2: Run all tests**
 
 Run: `xcodebuild test -project GoatMarkdown.xcodeproj -scheme GoatMarkdown`
-Expected: All tests pass (existing + new HighlightStoreTests + HighlightStateTests)
+Expected: All tests pass (existing + new HighlightStoreTests + HighlightStateTests + HighlightRenderingLogicTests)
 
 - [ ] **Step 3: Manual verification checklist**
 
-Open the app and verify:
+Open the app and verify each item:
+
+**Basic functionality:**
 - [ ] Open a .md file with paragraphs
 - [ ] Select text in a paragraph
 - [ ] Press `Cmd+Shift+H` → text gets yellow background
 - [ ] Press `Cmd+Shift+H` again on same selection → highlight removed
-- [ ] Highlight different text → multiple highlights visible
-- [ ] Close and reopen file → highlights persist
-- [ ] Search with `Cmd+F` → search match background shows on top of highlight
-- [ ] Run all existing tests → no regressions
+- [ ] Highlight different text in same block → multiple highlights visible
+- [ ] Highlight text in different blocks → all highlights render correctly
+
+**Persistence:**
+- [ ] Add several highlights across the document
+- [ ] Close the file
+- [ ] Reopen the file → all highlights persist with correct positions
+
+**Search interaction:**
+- [ ] Highlight a text range
+- [ ] Open search with `Cmd+F`
+- [ ] Search for text that overlaps the highlight
+- [ ] Search match (orange) is visible on top of highlight background (yellow)
+
+**Multi-window isolation:**
+- [ ] Open the same file in two windows (Window > New Window, then reopen file)
+- [ ] Add highlight in window 1
+- [ ] Reopen/reload file in window 2 → highlight appears
+- [ ] Modify highlight in window 2
+- [ ] Reload file in window 1 → updated highlight appears
+- [ ] No automatic cross-window sync (must reload)
+
+**Edge cases:**
+- [ ] Highlight text containing inline markdown (e.g., "**bold** text" — select "bold") → highlight lands on correct rendered text
+- [ ] Highlight across list items → only first item gets highlight (MVP single-block limitation)
+- [ ] Cmd+Shift+H when focus is in search field → no highlight applied (focus guard works)
+- [ ] Cmd+Shift+H when no text is selected → nothing happens (no error)
+
+**Regression check:**
+- [ ] All existing search highlighting still works correctly
+- [ ] Bookmark functionality unchanged
+- [ ] Font scale shortcuts unchanged
+- [ ] No crashes or visual artifacts
 
 If any step fails, fix and re-verify before final commit.
 
@@ -1158,7 +999,8 @@ git commit -m "fix: address manual testing issues"
 
 ## Notes
 
-- **Selection detection (MVP)**: We use `NSApp.keyWindow?.firstResponder as? NSTextView` to get current selection. This works because SwiftUI `Text` with `.textSelection(.enabled)` is backed by an NSTextView under the hood.
-- **Block offset calculation**: We concatenate all block texts sequentially and match selection range against this concatenated string. This is a simple MVP approach — if selection spans multiple blocks, we apply highlight to the first overlapping block only.
-- **Single-block limitation**: The `applyHighlightFromSelection` helper processes one block per Cmd+H press. Multi-block highlighting is out of scope for MVP.
-- **No tests for ContentView keyboard handler**: This is hard to unit test without UI test infrastructure. Manual verification is the primary validation.
+- **Selection detection (MVP)**: `NSApp.keyWindow?.firstResponder as? NSTextView` works because SwiftUI `Text` with `.textSelection(.enabled)` is backed by an NSTextView under the hood.
+- **Block offset calculation**: We walk through rendered plain text segments sequentially, matching NSTextView selection range against this concatenated string. Single-block selection only (MVP).
+- **Search vs highlight layering**: `applyHighlights` runs BEFORE `highlightWords` so search match colors overwrite highlight backgrounds. This is the visual hierarchy in the spec.
+- **No unit test for keyboard handler**: Hard to unit test without UI test infrastructure. Manual verification (Task 14) is primary validation.
+- **Out of scope**: Selection popover, multi-color UI, cross-window auto-sync, fuzzy offset matching when file is externally edited.
