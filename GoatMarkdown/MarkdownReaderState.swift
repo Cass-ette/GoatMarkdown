@@ -201,6 +201,11 @@ final class MarkdownReaderState {
         highlightStore.setHighlights(highlightState.highlights, for: filePath)
     }
 
+    func toggleHighlight(blockIndex: Int, textIndex: Int, range: Range<Int>) {
+        _ = highlightState.toggle(blockIndex: blockIndex, textIndex: textIndex, range: range)
+        saveHighlights()
+    }
+
     private func persistBodyFontScale() {
         defaults.set(bodyFontScale, forKey: Self.bodyFontScaleKey)
     }
