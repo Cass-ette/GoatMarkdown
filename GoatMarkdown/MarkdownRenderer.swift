@@ -4,6 +4,7 @@ struct MarkdownRenderer: View {
     let document: MarkdownDocument
     var theme: MarkdownTheme = MarkdownTheme()
     var searchState: SearchState?
+    var highlightState: HighlightState?
     var searchScrollTrigger = 0
     var pendingScrollBlockIndex: Binding<Int?> = .constant(nil)
     var onToggleBookmark: ((Int) -> Void)?
