@@ -25,7 +25,9 @@ final class MarkdownReaderState {
     var pendingScrollBlockIndex: Int?
     var bodyFontScale: Double
     var openMode: OpenMode = .empty
+    var highlightState = HighlightState()
     let bookmarkStore: BookmarkStore
+    let highlightStore: HighlightStore
 
     private let scanner = MarkdownFileScanner(fileManager: .default)
     private let defaults: UserDefaults
@@ -39,9 +41,10 @@ final class MarkdownReaderState {
     private static let maximumBodyFontScale = 1.8
     private static let bodyFontScaleStep = 0.1
 
-    init(defaults: UserDefaults = .standard, bookmarkStore: BookmarkStore = BookmarkStore()) {
+    init(defaults: UserDefaults = .standard, bookmarkStore: BookmarkStore = BookmarkStore(), highlightStore: HighlightStore = HighlightStore()) {
         self.defaults = defaults
         self.bookmarkStore = bookmarkStore
+        self.highlightStore = highlightStore
         self.bodyFontScale = defaults.object(forKey: Self.bodyFontScaleKey) as? Double ?? 1.0
     }
 
@@ -80,9 +83,12 @@ final class MarkdownReaderState {
             currentDocument = document
             defaults.set(url.path, forKey: Self.lastFileKey)
             pendingScrollBlockIndex = resolvedDefaultBookmarkIndex(in: document, filePath: url.path)
+            let stored = highlightStore.highlights(for: url.path)
+            highlightState.load(stored)
         } catch {
             currentDocument = MarkdownDocument(blocks: [.paragraph(text: "Unable to read file: \(error.localizedDescription)")], rawText: "")
             pendingScrollBlockIndex = nil
+            highlightState.load([])
         }
     }
 
@@ -188,6 +194,16 @@ final class MarkdownReaderState {
             let bookmark = BookmarkResolver.makeBookmark(for: block, blockIndex: blockIndex, isDefault: true)
             bookmarkStore.add(bookmark, for: filePath)
         }
+    }
+
+    func saveHighlights() {
+        guard let filePath = selectedFileURL?.path else { return }
+        highlightStore.setHighlights(highlightState.highlights, for: filePath)
+    }
+
+    func toggleHighlight(blockIndex: Int, textIndex: Int, range: Range<Int>) {
+        _ = highlightState.toggle(blockIndex: blockIndex, textIndex: textIndex, range: range)
+        saveHighlights()
     }
 
     private func persistBodyFontScale() {

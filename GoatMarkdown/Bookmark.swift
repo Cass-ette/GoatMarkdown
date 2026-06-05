@@ -71,3 +71,37 @@ final class BookmarkStore {
         defaults.set(data, forKey: Self.storageKey)
     }
 }
+
+@Observable
+final class HighlightStore {
+    private let defaults: UserDefaults
+    private static let storageKey = "highlights.byFilePath.v1"
+
+    private var byFilePath: [String: [Highlight]] = [:]
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        if let data = defaults.data(forKey: Self.storageKey),
+           let decoded = try? JSONDecoder().decode([String: [Highlight]].self, from: data) {
+            byFilePath = decoded
+        }
+    }
+
+    func highlights(for filePath: String) -> [Highlight] {
+        byFilePath[filePath] ?? []
+    }
+
+    func setHighlights(_ highlights: [Highlight], for filePath: String) {
+        if highlights.isEmpty {
+            byFilePath.removeValue(forKey: filePath)
+        } else {
+            byFilePath[filePath] = highlights
+        }
+        persist()
+    }
+
+    private func persist() {
+        guard let data = try? JSONEncoder().encode(byFilePath) else { return }
+        defaults.set(data, forKey: Self.storageKey)
+    }
+}
