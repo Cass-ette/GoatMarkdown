@@ -100,16 +100,23 @@ struct MarkdownRenderer: View {
 
     private func cachedText(_ text: String, inBlock blockIndex: Int? = nil, textIndex: Int = 0, parseMarkdown: Bool) -> AttributedString {
         let cacheKey: String
+        let highlightFingerprint = highlightState
+            .map { $0.highlights(in: blockIndex ?? -1, textIndex: textIndex) }
+            .map { $0.map { "\($0.id.uuidString)|\($0.rangeStart)|\($0.rangeEnd)|\($0.color.rawValue)" }.joined(separator: ",") }
+            ?? ""
         if let query = searchState?.query, !query.isEmpty {
             let currentMatchSignature = searchState?.currentMatch?.signature ?? "none"
-            cacheKey = "\(parseMarkdown ? "markdown" : "plain")|\(query)|\(blockIndex.map(String.init) ?? "none")|\(textIndex)|\(currentMatchSignature)\n\(text)"
+            cacheKey = "\(parseMarkdown ? "markdown" : "plain")|\(query)|\(blockIndex.map(String.init) ?? "none")|\(textIndex)|\(currentMatchSignature)|\(highlightFingerprint)\n\(text)"
         } else {
-            cacheKey = "\(parseMarkdown ? "markdown" : "plain")\n\(text)"
+            cacheKey = "\(parseMarkdown ? "markdown" : "plain")|\(blockIndex.map(String.init) ?? "none")|\(highlightFingerprint)\n\(text)"
         }
         if let cached = Self.inlineCache[cacheKey] { return cached }
 
         var result = parseMarkdown ? ((try? AttributedString(markdown: text)) ?? AttributedString(text)) : AttributedString(text)
 
+        if let blockIndex {
+            applyHighlights(in: &result, blockIndex: blockIndex, textIndex: textIndex)
+        }
         if let query = searchState?.query, !query.isEmpty {
             highlightWords(in: &result, query: query, blockIndex: blockIndex, textIndex: textIndex)
         }
@@ -139,6 +146,31 @@ struct MarkdownRenderer: View {
                 }
             }
             start = range.upperBound
+        }
+    }
+
+    private func applyHighlights(
+        in attributed: inout AttributedString,
+        blockIndex: Int?,
+        textIndex: Int
+    ) {
+        guard let blockIndex, let highlightState else { return }
+        let highlights = highlightState.highlights(in: blockIndex, textIndex: textIndex)
+        guard !highlights.isEmpty else { return }
+
+        let plain = String(attributed.characters)
+        guard !plain.isEmpty else { return }
+
+        let nsString = plain as NSString
+        for highlight in highlights {
+            guard highlight.rangeStart >= 0,
+                  highlight.rangeEnd <= nsString.length,
+                  highlight.rangeStart < highlight.rangeEnd else { continue }
+
+            let nsRange = NSRange(location: highlight.rangeStart, length: highlight.rangeEnd - highlight.rangeStart)
+            guard let attrRange = Range(nsRange, in: attributed) else { continue }
+
+            attributed[attrRange].backgroundColor = highlight.color.swiftUIColor
         }
     }
 
