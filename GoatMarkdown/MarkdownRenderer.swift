@@ -74,6 +74,10 @@ struct MarkdownRenderer: View {
         "block-\(blockIndex)"
     }
 
+    func renderAttributedStringForTesting(text: String, blockIndex: Int, textIndex: Int) -> AttributedString {
+        return cachedText(text, inBlock: blockIndex, textIndex: textIndex, parseMarkdown: true)
+    }
+
     private func scrollToCurrentMatch(with proxy: ScrollViewProxy) {
         guard let match = searchState?.currentMatch else { return }
         withAnimation {
