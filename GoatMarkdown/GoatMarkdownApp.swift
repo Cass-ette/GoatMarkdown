@@ -5,6 +5,7 @@ struct WindowCommandActions {
     var openFile: () -> Void
     var openFolder: () -> Void
     var openInNewWindow: () -> Void
+    var toggleHighlight: () -> Void
 }
 
 private struct WindowCommandActionsKey: FocusedValueKey {
@@ -57,6 +58,14 @@ struct GoatMarkdownCommands: Commands {
                 windowCommandActions?.openInNewWindow()
             }
             .keyboardShortcut("o", modifiers: [.command, .shift])
+            .disabled(windowCommandActions == nil)
+        }
+
+        CommandGroup(after: .textEditing) {
+            Button("Highlight") {
+                windowCommandActions?.toggleHighlight()
+            }
+            .keyboardShortcut("h", modifiers: [.command, .shift])
             .disabled(windowCommandActions == nil)
         }
     }

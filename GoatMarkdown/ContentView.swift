@@ -106,6 +106,14 @@ struct ContentView: View {
                 .keyboardShortcut("=", modifiers: .command)
 
                 Button {
+                    applyHighlightFromSelection(in: state)
+                } label: {
+                    Image(systemName: "highlighter")
+                }
+                .help("Highlight selection")
+                .keyboardShortcut("h", modifiers: [.command, .shift])
+
+                Button {
                     openFilePanel(in: state)
                 } label: {
                     Label("Open File", systemImage: "doc.text")
@@ -122,19 +130,12 @@ struct ContentView: View {
             search.isActive = true
             return .handled
         }
-        .onKeyPress("h", phases: .down) { press in
-            guard press.modifiers == [.command, .shift] else { return .ignored }
-            guard state.currentDocument != nil else { return .ignored }
-            // Only handle when markdown text is the first responder (not search field, sidebar, etc.)
-            guard NSApp.keyWindow?.firstResponder is NSTextView else { return .ignored }
-            applyHighlightFromSelection(in: state)
-            return .handled
-        }
         .focusedValue(\.windowCommandActions, WindowCommandActions(
             toggleSearch: { toggleSearch(in: state) },
             openFile: { openFilePanel(in: state) },
             openFolder: { openFolderPanel(in: state) },
-            openInNewWindow: { openInNewWindowPanel() }
+            openInNewWindow: { openInNewWindowPanel() },
+            toggleHighlight: { applyHighlightFromSelection(in: state) }
         ))
     }
 
@@ -254,37 +255,51 @@ struct ContentView: View {
     }
 
     private func applyHighlightFromSelection(in state: MarkdownReaderState) {
-        // MVP: read NSTextView selection and map to (blockIndex, textIndex, range) using RENDERED
-        // plain text. Critical: offsets must be in post-markdown text (what user sees in NSTextView
-        // and what applyHighlights() expects), not raw block text (which has **, *, [, etc.).
-        // This mirrors SearchState's extractSearchableTexts + renderedPlainText convention.
-        guard let textView = NSApp.keyWindow?.firstResponder as? NSTextView else { return }
+        // NSTextView.selectedRange is in LOCAL coordinates of the focused text view.
+        // SwiftUI renders one Text view per block segment (paragraph / list item / etc.),
+        // each backed by its own NSTextView. So:
+        //   1. Get the focused NSTextView's string (which IS the rendered plain text of one segment)
+        //   2. Find which (blockIndex, textIndex) it corresponds to by matching the string
+        //   3. Use selectedRange directly as the local range within that segment
+        guard let textView = NSApp.keyWindow?.firstResponder as? NSTextView else {
+            NSLog("[highlight] no NSTextView first responder")
+            return
+        }
         guard let firstRange = textView.selectedRanges.first?.rangeValue,
               firstRange.location != NSNotFound,
-              firstRange.length > 0 else { return }
+              firstRange.length > 0 else {
+            NSLog("[highlight] empty selection, range=\(textView.selectedRanges)")
+            return
+        }
+        guard let document = state.currentDocument else {
+            NSLog("[highlight] no current document")
+            return
+        }
 
-        guard let document = state.currentDocument else { return }
+        let textViewString = textView.string as NSString
+        NSLog("[highlight] textView.string length=\(textViewString.length), prefix=\(textViewString.substring(to: min(40, textViewString.length)))")
+        NSLog("[highlight] selectedRange location=\(firstRange.location) length=\(firstRange.length)")
 
-        var characterOffset = 0
+        // Find which segment this NSTextView belongs to by matching its string content
         for (blockIndex, block) in document.blocks.enumerated() {
             let segmentTexts = extractSearchableTexts(from: block)
             for (textIndex, rawText) in segmentTexts.enumerated() {
                 let renderedText = renderedPlainText(rawText)
-                let segmentLength = (renderedText as NSString).length
-                let segmentStart = characterOffset
-                let segmentEnd = characterOffset + segmentLength
-
-                if firstRange.location < segmentEnd && firstRange.location + firstRange.length > segmentStart {
-                    let localStart = max(0, firstRange.location - segmentStart)
-                    let localEnd = min(segmentLength, firstRange.location + firstRange.length - segmentStart)
+                if (renderedText as NSString) == textViewString {
+                    // Match! The NSTextView is rendering this segment.
+                    // Its selectedRange is in local coordinates — use directly.
+                    let segmentLength = textViewString.length
+                    let localStart = max(0, min(firstRange.location, segmentLength))
+                    let localEnd = max(localStart, min(firstRange.location + firstRange.length, segmentLength))
+                    NSLog("[highlight] matched block=\(blockIndex) textIndex=\(textIndex) range=\(localStart)..<\(localEnd)")
                     if localStart < localEnd {
                         state.toggleHighlight(blockIndex: blockIndex, textIndex: textIndex, range: localStart..<localEnd)
                     }
                     return
                 }
-                characterOffset = segmentEnd
             }
         }
+        NSLog("[highlight] no segment matched textView.string")
     }
 
     // Mirrors SearchState's extraction + rendering. Duplicated intentionally to keep ContentView
