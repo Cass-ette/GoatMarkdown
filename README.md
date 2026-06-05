@@ -10,6 +10,7 @@ A lightweight macOS Markdown reader built with SwiftUI.
 - Markdown 渲染（标题、段落、列表、引用、表格、代码块、图片、链接、分隔线）
 - 搜索：当前命中实心高亮、其他命中半透明高亮，next/prev 自动滚动定位
 - 书签：按块加书签，可设“自动打开默认书签”，下次打开文件时自动滚到该处
+- 荧光笔：选中文字后按 `Cmd + Shift + H` 添加黄色高亮，再次按相同快捷键移除（高亮绑定字符位置，文件外部编辑后可能错位）
 - 正文字号缩放，状态持久化到 UserDefaults
 - Finder “Open With” 与外部文件 URL 打开
 
@@ -18,6 +19,7 @@ A lightweight macOS Markdown reader built with SwiftUI.
 | 快捷键 | 行为 |
 | --- | --- |
 | `Cmd + F` / `/` | 打开/关闭搜索栏 |
+| `Cmd + Shift + H` | 高亮 / 取消高亮当前选中文本 |
 | `Enter`（在搜索框内） | 跳到下一处命中 |
 | `Cmd + =` / `Cmd + -` | 放大 / 缩小正文字号 |
 | `Cmd + O` | 在当前窗口打开文件 |
