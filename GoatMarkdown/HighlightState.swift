@@ -45,4 +45,9 @@ final class HighlightState {
     func load(_ items: [Highlight]) {
         highlights = items
     }
+
+    func updateNote(id: UUID, note: String?) {
+        guard let index = highlights.firstIndex(where: { $0.id == id }) else { return }
+        highlights[index].note = note
+    }
 }
