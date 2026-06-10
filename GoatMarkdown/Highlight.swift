@@ -8,6 +8,7 @@ struct Highlight: Equatable, Codable, Identifiable {
     let rangeEnd: Int
     let color: HighlightColor
     let createdAt: Date
+    var note: String?
 
     init(
         id: UUID = UUID(),
@@ -16,7 +17,8 @@ struct Highlight: Equatable, Codable, Identifiable {
         rangeStart: Int,
         rangeEnd: Int,
         color: HighlightColor,
-        createdAt: Date = Date()
+        createdAt: Date = Date(),
+        note: String? = nil
     ) {
         self.id = id
         self.blockIndex = blockIndex
@@ -25,5 +27,6 @@ struct Highlight: Equatable, Codable, Identifiable {
         self.rangeEnd = rangeEnd
         self.color = color
         self.createdAt = createdAt
+        self.note = note
     }
 }
