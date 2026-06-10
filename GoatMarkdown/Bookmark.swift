@@ -8,6 +8,44 @@ struct Bookmark: Equatable, Codable, Identifiable {
     var preview: String
     var isDefault: Bool
     var createdAt: Date
+    var tags: [String]
+
+    init(
+        id: UUID = UUID(),
+        blockIndex: Int,
+        blockSignature: String,
+        title: String,
+        preview: String,
+        isDefault: Bool,
+        createdAt: Date,
+        tags: [String] = []
+    ) {
+        self.id = id
+        self.blockIndex = blockIndex
+        self.blockSignature = blockSignature
+        self.title = title
+        self.preview = preview
+        self.isDefault = isDefault
+        self.createdAt = createdAt
+        self.tags = tags
+    }
+
+    // Custom decoder to handle legacy data without tags
+    private enum CodingKeys: String, CodingKey {
+        case id, blockIndex, blockSignature, title, preview, isDefault, createdAt, tags
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        blockIndex = try container.decode(Int.self, forKey: .blockIndex)
+        blockSignature = try container.decode(String.self, forKey: .blockSignature)
+        title = try container.decode(String.self, forKey: .title)
+        preview = try container.decode(String.self, forKey: .preview)
+        isDefault = try container.decode(Bool.self, forKey: .isDefault)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        tags = try container.decodeIfPresent([String].self, forKey: .tags) ?? []
+    }
 }
 
 @Observable
