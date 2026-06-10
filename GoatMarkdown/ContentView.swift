@@ -12,6 +12,8 @@ struct ContentView: View {
     @State private var search = SearchState()
     @State private var searchScrollTrigger = 0
     @FocusState private var searchFieldFocused: Bool
+    @State private var editingHighlight: Highlight?
+    @State private var showNoteEditor = false
 
     init(
         bookmarkStore: BookmarkStore,
@@ -60,7 +62,15 @@ struct ContentView: View {
                     onToggleBookmark: { state.toggleBookmark(for: $0) },
                     onToggleDefaultBookmark: { state.toggleDefaultBookmark(for: $0) },
                     hasBookmark: { state.hasBookmark(for: $0) },
-                    isDefaultBookmark: { state.isDefaultBookmark(for: $0) }
+                    isDefaultBookmark: { state.isDefaultBookmark(for: $0) },
+                    onEditHighlightNote: { highlight in
+                        editingHighlight = highlight
+                        showNoteEditor = true
+                    },
+                    onRemoveHighlight: { id in
+                        state.highlightState.remove(id: id)
+                        state.saveHighlights()
+                    }
                 )
                     .overlay(alignment: .top) {
                         if search.isActive {
@@ -72,6 +82,18 @@ struct ContentView: View {
                     }
                     .onChange(of: state.selectedFileURL) { _, _ in
                         if let doc = state.currentDocument { search.search(in: doc) }
+                    }
+                    .sheet(isPresented: $showNoteEditor) {
+                        if let highlight = editingHighlight {
+                            NoteEditorSheet(
+                                highlightID: highlight.id,
+                                isPresented: $showNoteEditor,
+                                initialNote: highlight.note,
+                                onSave: { id, note in
+                                    state.updateHighlightNote(id: id, note: note)
+                                }
+                            )
+                        }
                     }
             } else if state.isLoading {
                 ProgressView()

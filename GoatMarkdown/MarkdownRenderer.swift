@@ -11,6 +11,8 @@ struct MarkdownRenderer: View {
     var onToggleDefaultBookmark: ((Int) -> Void)?
     var hasBookmark: ((Int) -> Bool)?
     var isDefaultBookmark: ((Int) -> Bool)?
+    var onEditHighlightNote: ((Highlight) -> Void)?
+    var onRemoveHighlight: ((UUID) -> Void)?
 
     @State private var hoveringBlockIndex: Int?
     private static var inlineCache: [String: AttributedString] = [:]
@@ -187,12 +189,28 @@ struct MarkdownRenderer: View {
             Text(text)
                 .font(theme.headingFonts[level] ?? .headline)
                 .foregroundStyle(theme.headingColor)
+                .modifier(HighlightMenuModifier(
+                    blockIndex: blockIndex,
+                    textIndex: 0,
+                    text: text,
+                    highlightState: highlightState,
+                    onEditHighlightNote: onEditHighlightNote,
+                    onRemoveHighlight: onRemoveHighlight
+                ))
 
         case .paragraph(let text):
             Text(cachedInline(text, inBlock: blockIndex))
                 .font(theme.bodyFont)
                 .foregroundStyle(theme.bodyColor)
                 .id(matchScrollID(for: blockIndex, textIndex: 0))
+                .modifier(HighlightMenuModifier(
+                    blockIndex: blockIndex,
+                    textIndex: 0,
+                    text: text,
+                    highlightState: highlightState,
+                    onEditHighlightNote: onEditHighlightNote,
+                    onRemoveHighlight: onRemoveHighlight
+                ))
 
         case .unorderedList(let items):
             VStack(alignment: .leading, spacing: 4) {
@@ -205,6 +223,14 @@ struct MarkdownRenderer: View {
                             .font(theme.bodyFont)
                             .foregroundStyle(theme.bodyColor)
                             .id(matchScrollID(for: blockIndex, textIndex: itemIndex))
+                            .modifier(HighlightMenuModifier(
+                                blockIndex: blockIndex,
+                                textIndex: itemIndex,
+                                text: item,
+                                highlightState: highlightState,
+                                onEditHighlightNote: onEditHighlightNote,
+                                onRemoveHighlight: onRemoveHighlight
+                            ))
                     }
                 }
             }
@@ -221,6 +247,14 @@ struct MarkdownRenderer: View {
                             .font(theme.bodyFont)
                             .foregroundStyle(theme.bodyColor)
                             .id(matchScrollID(for: blockIndex, textIndex: itemIndex))
+                            .modifier(HighlightMenuModifier(
+                                blockIndex: blockIndex,
+                                textIndex: itemIndex,
+                                text: item,
+                                highlightState: highlightState,
+                                onEditHighlightNote: onEditHighlightNote,
+                                onRemoveHighlight: onRemoveHighlight
+                            ))
                     }
                 }
             }
@@ -236,6 +270,14 @@ struct MarkdownRenderer: View {
                     .padding(.leading, 12)
                     .padding(.vertical, 4)
                     .id(matchScrollID(for: blockIndex, textIndex: 0))
+                    .modifier(HighlightMenuModifier(
+                        blockIndex: blockIndex,
+                        textIndex: 0,
+                        text: text,
+                        highlightState: highlightState,
+                        onEditHighlightNote: onEditHighlightNote,
+                        onRemoveHighlight: onRemoveHighlight
+                    ))
             }
 
         case .codeBlock(let language, let code):
@@ -254,6 +296,14 @@ struct MarkdownRenderer: View {
                     .padding(12)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .id(matchScrollID(for: blockIndex, textIndex: 0))
+                    .modifier(HighlightMenuModifier(
+                        blockIndex: blockIndex,
+                        textIndex: 0,
+                        text: code,
+                        highlightState: highlightState,
+                        onEditHighlightNote: onEditHighlightNote,
+                        onRemoveHighlight: onRemoveHighlight
+                    ))
             }
             .background(theme.codeBackgroundColor)
             .clipShape(RoundedRectangle(cornerRadius: 8))
@@ -298,6 +348,14 @@ struct MarkdownRenderer: View {
                         .padding(.horizontal, 8)
                         .padding(.vertical, 6)
                         .lineLimit(1)
+                        .modifier(HighlightMenuModifier(
+                            blockIndex: blockIndex,
+                            textIndex: col,
+                            text: headers[col],
+                            highlightState: highlightState,
+                            onEditHighlightNote: onEditHighlightNote,
+                            onRemoveHighlight: onRemoveHighlight
+                        ))
                 }
             }
             .background(Color(nsColor: .controlBackgroundColor))
@@ -306,11 +364,20 @@ struct MarkdownRenderer: View {
                 HStack(spacing: 0) {
                     ForEach(0..<colCount, id: \.self) { col in
                         let cellText = col < rows[rowIdx].count ? rows[rowIdx][col] : ""
-                        Text(cachedInline(cellText, inBlock: blockIndex, textIndex: textIndexForTableCell(row: rowIdx, column: col, headers: headers, rows: rows)))
+                        let cellTextIndex = textIndexForTableCell(row: rowIdx, column: col, headers: headers, rows: rows)
+                        Text(cachedInline(cellText, inBlock: blockIndex, textIndex: cellTextIndex))
                             .font(theme.bodyFont)
                             .frame(maxWidth: .infinity, alignment: alignmentForColumn(col, alignments: alignments))
                             .padding(.horizontal, 8)
                             .padding(.vertical, 6)
+                            .modifier(HighlightMenuModifier(
+                                blockIndex: blockIndex,
+                                textIndex: cellTextIndex,
+                                text: cellText,
+                                highlightState: highlightState,
+                                onEditHighlightNote: onEditHighlightNote,
+                                onRemoveHighlight: onRemoveHighlight
+                            ))
                     }
                 }
                 if rowIdx < rows.count - 1 {
@@ -483,5 +550,59 @@ private struct BookmarkGutterButton: View {
             return "Click: remove bookmark · Shift+Click: toggle auto-open default"
         }
         return "Click: add bookmark · Shift+Click: set as auto-open default"
+    }
+}
+
+// MARK: - Highlight Menu Modifier
+
+private struct HighlightMenuModifier: ViewModifier {
+    let blockIndex: Int
+    let textIndex: Int
+    let text: String
+    let highlightState: HighlightState?
+    let onEditHighlightNote: ((Highlight) -> Void)?
+    let onRemoveHighlight: ((UUID) -> Void)?
+
+    private var highlights: [Highlight] {
+        highlightState?.highlights(in: blockIndex, textIndex: textIndex) ?? []
+    }
+
+    private var firstHighlight: Highlight? {
+        highlights.first
+    }
+
+    private var tooltipText: String {
+        guard let annotated = highlights.first(where: { $0.note != nil }),
+              let note = annotated.note else {
+            return ""
+        }
+        let snippet = String(text.prefix(40))
+        return snippet.isEmpty ? "Note: \(note)" : "\(snippet)...\n\nNote: \(note)"
+    }
+
+    private var hasNote: Bool {
+        highlights.contains(where: { $0.note != nil })
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .help(tooltipText)
+            .contextMenu {
+                if let highlight = firstHighlight {
+                    if highlight.note != nil {
+                        Button("Edit Note") { onEditHighlightNote?(highlight) }
+                    } else {
+                        Button("Add Note") { onEditHighlightNote?(highlight) }
+                    }
+                    Button("Remove Highlight", role: .destructive) { onRemoveHighlight?(highlight.id) }
+                }
+            }
+            .overlay(alignment: .topTrailing) {
+                if hasNote {
+                    Text("📝")
+                        .font(.system(size: 9))
+                        .padding(2)
+                }
+            }
     }
 }
