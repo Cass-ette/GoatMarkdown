@@ -206,6 +206,11 @@ final class MarkdownReaderState {
         saveHighlights()
     }
 
+    func updateHighlightNote(id: UUID, note: String?) {
+        highlightState.updateNote(id: id, note: note)
+        saveHighlights()
+    }
+
     private func persistBodyFontScale() {
         defaults.set(bodyFontScale, forKey: Self.bodyFontScaleKey)
     }

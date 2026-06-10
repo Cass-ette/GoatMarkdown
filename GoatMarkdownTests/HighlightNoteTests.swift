@@ -33,6 +33,24 @@ final class HighlightNoteTests: XCTestCase {
     }
 }
 
+final class MarkdownReaderStateNoteTests: XCTestCase {
+    func testUpdateHighlightNotePersists() {
+        let suiteName = "NoteIntegration-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let highlightStore = HighlightStore(defaults: defaults)
+        let state = MarkdownReaderState(defaults: defaults, highlightStore: highlightStore)
+        state.highlightState.add(Highlight(blockIndex: 0, textIndex: 0, rangeStart: 0, rangeEnd: 5, color: .yellow))
+
+        let id = state.highlightState.highlights.first!.id
+        state.updateHighlightNote(id: id, note: "persisted note")
+
+        // Note should be in state
+        XCTAssertEqual(state.highlightState.highlights.first?.note, "persisted note")
+    }
+}
+
 final class HighlightStateNoteTests: XCTestCase {
     private var state: HighlightState!
 
