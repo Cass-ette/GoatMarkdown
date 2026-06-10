@@ -104,6 +104,25 @@ final class BookmarkStore {
         persist()
     }
 
+    func updateTags(_ id: UUID, tags: [String], for filePath: String) {
+        guard var list = byFilePath[filePath] else { return }
+        guard let index = list.firstIndex(where: { $0.id == id }) else { return }
+        list[index].tags = tags
+        byFilePath[filePath] = list
+        persist()
+    }
+
+    func allTags(for filePath: String) -> [String] {
+        let bookmarks = byFilePath[filePath] ?? []
+        let allTags = bookmarks.flatMap(\.tags)
+        return Array(Set(allTags)).sorted()
+    }
+
+    func bookmarks(for filePath: String, withTag tag: String) -> [Bookmark] {
+        let all = byFilePath[filePath] ?? []
+        return all.filter { $0.tags.contains(tag) }
+    }
+
     private func persist() {
         guard let data = try? JSONEncoder().encode(byFilePath) else { return }
         defaults.set(data, forKey: Self.storageKey)

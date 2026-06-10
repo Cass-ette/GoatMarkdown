@@ -44,3 +44,69 @@ final class BookmarkTagsTests: XCTestCase {
         XCTAssertEqual(decoded.tags, [])
     }
 }
+
+final class BookmarkStoreTagTests: XCTestCase {
+    private var defaults: UserDefaults!
+    private var suiteName: String!
+
+    override func setUp() {
+        super.setUp()
+        suiteName = "BookmarkStoreTagTests-\(UUID().uuidString)"
+        defaults = UserDefaults(suiteName: suiteName)
+    }
+
+    override func tearDown() {
+        defaults.removePersistentDomain(forName: suiteName)
+        defaults = nil
+        suiteName = nil
+        super.tearDown()
+    }
+
+    func testUpdateTagsPersists() {
+        let store = BookmarkStore(defaults: defaults)
+        let bookmark = Bookmark(
+            id: UUID(), blockIndex: 0, blockSignature: "sig",
+            title: "T", preview: "p", isDefault: false, createdAt: Date()
+        )
+        store.add(bookmark, for: "/tmp/A.md")
+        store.updateTags(bookmark.id, tags: ["important", "review"], for: "/tmp/A.md")
+
+        let stored = store.bookmarks(for: "/tmp/A.md").first
+        XCTAssertEqual(stored?.tags, ["important", "review"])
+    }
+
+    func testAllTagsReturnsUniqueTags() {
+        let store = BookmarkStore(defaults: defaults)
+        let b1 = Bookmark(
+            id: UUID(), blockIndex: 0, blockSignature: "sig-0",
+            title: "A", preview: "", isDefault: false, createdAt: Date(), tags: ["foo", "bar"]
+        )
+        let b2 = Bookmark(
+            id: UUID(), blockIndex: 1, blockSignature: "sig-1",
+            title: "B", preview: "", isDefault: false, createdAt: Date(), tags: ["bar", "baz"]
+        )
+        store.add(b1, for: "/tmp/A.md")
+        store.add(b2, for: "/tmp/A.md")
+
+        let allTags = store.allTags(for: "/tmp/A.md")
+        XCTAssertEqual(Set(allTags), Set(["foo", "bar", "baz"]))
+    }
+
+    func testFilterBookmarksByTag() {
+        let store = BookmarkStore(defaults: defaults)
+        let b1 = Bookmark(
+            id: UUID(), blockIndex: 0, blockSignature: "sig-0",
+            title: "A", preview: "", isDefault: false, createdAt: Date(), tags: ["important"]
+        )
+        let b2 = Bookmark(
+            id: UUID(), blockIndex: 1, blockSignature: "sig-1",
+            title: "B", preview: "", isDefault: false, createdAt: Date(), tags: ["todo"]
+        )
+        store.add(b1, for: "/tmp/A.md")
+        store.add(b2, for: "/tmp/A.md")
+
+        let filtered = store.bookmarks(for: "/tmp/A.md", withTag: "important")
+        XCTAssertEqual(filtered.count, 1)
+        XCTAssertEqual(filtered.first?.title, "A")
+    }
+}
