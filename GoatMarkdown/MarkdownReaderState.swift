@@ -201,9 +201,11 @@ final class MarkdownReaderState {
         highlightStore.setHighlights(highlightState.highlights, for: filePath)
     }
 
-    func toggleHighlight(blockIndex: Int, textIndex: Int, range: Range<Int>) {
-        _ = highlightState.toggle(blockIndex: blockIndex, textIndex: textIndex, range: range)
+    @discardableResult
+    func toggleHighlight(blockIndex: Int, textIndex: Int, range: Range<Int>) -> Highlight? {
+        let result = highlightState.toggle(blockIndex: blockIndex, textIndex: textIndex, range: range)
         saveHighlights()
+        return result
     }
 
     func updateHighlightNote(id: UUID, note: String?) {

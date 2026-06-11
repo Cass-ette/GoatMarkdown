@@ -32,6 +32,14 @@ struct FileBrowserSidebar: View {
                             }
                         }
                         BookmarkSidebarSection(state: state)
+                        HighlightSidebarSection(
+                            state: state,
+                            onEditNote: { _ in },
+                            onRemove: { id in
+                                state.highlightState.remove(id: id)
+                                state.saveHighlights()
+                            }
+                        )
                     }
                     .listStyle(.sidebar)
                     .onChange(of: state.selectedFileURL) { _, newURL in
@@ -52,6 +60,14 @@ struct FileBrowserSidebar: View {
     private var bookmarkList: some View {
         List {
             BookmarkSidebarSection(state: state)
+            HighlightSidebarSection(
+                state: state,
+                onEditNote: { _ in },
+                onRemove: { id in
+                    state.highlightState.remove(id: id)
+                    state.saveHighlights()
+                }
+            )
         }
         .listStyle(.sidebar)
     }

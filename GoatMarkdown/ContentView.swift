@@ -315,7 +315,20 @@ struct ContentView: View {
                     let localEnd = max(localStart, min(firstRange.location + firstRange.length, segmentLength))
                     NSLog("[highlight] matched block=\(blockIndex) textIndex=\(textIndex) range=\(localStart)..<\(localEnd)")
                     if localStart < localEnd {
-                        state.toggleHighlight(blockIndex: blockIndex, textIndex: textIndex, range: localStart..<localEnd)
+                        // Find if a highlight already exists in this range
+                        let range = localStart..<localEnd
+                        if let existing = state.highlightState.find(blockIndex: blockIndex, textIndex: textIndex, range: range) {
+                            // Already highlighted → just open note editor
+                            editingHighlight = existing
+                            showNoteEditor = true
+                        } else {
+                            // New highlight → create it AND open note editor
+                            let newHighlight = state.toggleHighlight(blockIndex: blockIndex, textIndex: textIndex, range: range)
+                            if let newHighlight {
+                                editingHighlight = newHighlight
+                                showNoteEditor = true
+                            }
+                        }
                     }
                     return
                 }

@@ -587,16 +587,6 @@ private struct HighlightMenuModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .help(tooltipText)
-            .contextMenu {
-                if let highlight = firstHighlight {
-                    if highlight.note != nil {
-                        Button("Edit Note") { onEditHighlightNote?(highlight) }
-                    } else {
-                        Button("Add Note") { onEditHighlightNote?(highlight) }
-                    }
-                    Button("Remove Highlight", role: .destructive) { onRemoveHighlight?(highlight.id) }
-                }
-            }
             .overlay(alignment: .topTrailing) {
                 if hasNote {
                     Text("📝")
