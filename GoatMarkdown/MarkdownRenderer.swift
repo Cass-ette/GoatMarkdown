@@ -553,7 +553,37 @@ private struct BookmarkGutterButton: View {
     }
 }
 
-// MARK: - Highlight Menu Modifier
+// MARK: - Highlight Note Tooltip Modifier
+
+private struct HighlightNoteTooltip: View {
+    let note: String
+    let snippet: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 6) {
+            Image(systemName: "note.text")
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+            Text(note)
+                .font(.system(size: 11))
+                .foregroundStyle(.primary)
+                .lineLimit(6)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .frame(maxWidth: 300, alignment: .leading)
+        .background(
+            Color(nsColor: .windowBackgroundColor).opacity(0.95)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 5)
+                .stroke(Color.secondary.opacity(0.25), lineWidth: 0.5)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 5))
+        .shadow(color: .black.opacity(0.12), radius: 3, y: 1)
+    }
+}
 
 private struct HighlightMenuModifier: ViewModifier {
     let blockIndex: Int
@@ -563,6 +593,9 @@ private struct HighlightMenuModifier: ViewModifier {
     let onEditHighlightNote: ((Highlight) -> Void)?
     let onRemoveHighlight: ((UUID) -> Void)?
 
+    @State private var isHovering = false
+    @State private var hoverTask: Task<Void, Never>?
+
     private var highlights: [Highlight] {
         highlightState?.highlights(in: blockIndex, textIndex: textIndex) ?? []
     }
@@ -571,22 +604,19 @@ private struct HighlightMenuModifier: ViewModifier {
         highlights.first
     }
 
-    private var tooltipText: String {
-        guard let annotated = highlights.first(where: { $0.note != nil }),
-              let note = annotated.note else {
-            return ""
-        }
-        let snippet = String(text.prefix(40))
-        return snippet.isEmpty ? "Note: \(note)" : "\(snippet)...\n\nNote: \(note)"
+    private var annotatedHighlight: Highlight? {
+        highlights.first(where: { $0.note != nil })
     }
 
     private var hasNote: Bool {
-        highlights.contains(where: { $0.note != nil })
+        annotatedHighlight != nil
     }
 
     func body(content: Content) -> some View {
         content
-            .help(tooltipText)
+            .onHover { hovering in
+                handleHover(hovering)
+            }
             .overlay(alignment: .topTrailing) {
                 if hasNote {
                     Text("📝")
@@ -594,5 +624,51 @@ private struct HighlightMenuModifier: ViewModifier {
                         .padding(2)
                 }
             }
+            .overlay(alignment: .bottomLeading) {
+                if isHovering, let noteInfo = currentNoteInfo {
+                    HighlightNoteTooltip(
+                        note: noteInfo.note,
+                        snippet: noteInfo.snippet
+                    )
+                    .offset(y: 6)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                    .allowsHitTesting(false)
+                    .zIndex(1000)
+                }
+            }
+    }
+
+    // Find the highlight closest to the current mouse position.
+    // For now, return all annotated highlights as a single combined note.
+    private var currentNoteInfo: (note: String, snippet: String)? {
+        let annotated = highlights.filter { $0.note != nil }
+        guard !annotated.isEmpty else { return nil }
+        // If only one, show it directly
+        if annotated.count == 1, let note = annotated.first?.note {
+            return (note, String(text.prefix(40)))
+        }
+        // Multiple: show all notes numbered
+        let combined = annotated.enumerated().map { idx, h in
+            "\(idx + 1). \(h.note ?? "")"
+        }.joined(separator: "\n")
+        return (combined, String(text.prefix(40)))
+    }
+
+    private func handleHover(_ hovering: Bool) {
+        hoverTask?.cancel()
+        if hovering && hasNote {
+            hoverTask = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 150_000_000) // 0.15s
+                if !Task.isCancelled {
+                    withAnimation(.easeOut(duration: 0.1)) {
+                        isHovering = true
+                    }
+                }
+            }
+        } else {
+            withAnimation(.easeIn(duration: 0.1)) {
+                isHovering = false
+            }
+        }
     }
 }

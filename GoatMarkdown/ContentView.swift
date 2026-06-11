@@ -13,7 +13,7 @@ struct ContentView: View {
     @State private var searchScrollTrigger = 0
     @FocusState private var searchFieldFocused: Bool
     @State private var editingHighlight: Highlight?
-    @State private var showNoteEditor = false
+    private let noteEditorController = NoteEditorWindowController()
 
     init(
         bookmarkStore: BookmarkStore,
@@ -48,7 +48,18 @@ struct ContentView: View {
     private func content(for state: MarkdownReaderState) -> some View {
         @Bindable var state = state
         NavigationSplitView {
-            FileBrowserSidebar(state: state, onSelect: { state.selectFile($0) })
+            FileBrowserSidebar(
+                state: state,
+                onSelect: { state.selectFile($0) },
+                onEditHighlightNote: { highlight in
+                    noteEditorController.show(
+                        highlightID: highlight.id,
+                        initialNote: highlight.note
+                    ) { id, note in
+                        state.updateHighlightNote(id: id, note: note)
+                    }
+                }
+            )
             .frame(minWidth: 200)
         } detail: {
             if let document = state.currentDocument {
@@ -64,8 +75,12 @@ struct ContentView: View {
                     hasBookmark: { state.hasBookmark(for: $0) },
                     isDefaultBookmark: { state.isDefaultBookmark(for: $0) },
                     onEditHighlightNote: { highlight in
-                        editingHighlight = highlight
-                        showNoteEditor = true
+                        noteEditorController.show(
+                            highlightID: highlight.id,
+                            initialNote: highlight.note
+                        ) { id, note in
+                            state.updateHighlightNote(id: id, note: note)
+                        }
                     },
                     onRemoveHighlight: { id in
                         state.highlightState.remove(id: id)
@@ -83,17 +98,8 @@ struct ContentView: View {
                     .onChange(of: state.selectedFileURL) { _, _ in
                         if let doc = state.currentDocument { search.search(in: doc) }
                     }
-                    .sheet(isPresented: $showNoteEditor) {
-                        if let highlight = editingHighlight {
-                            NoteEditorSheet(
-                                highlightID: highlight.id,
-                                isPresented: $showNoteEditor,
-                                initialNote: highlight.note,
-                                onSave: { id, note in
-                                    state.updateHighlightNote(id: id, note: note)
-                                }
-                            )
-                        }
+                    .sheet(isPresented: .constant(false)) {
+                        EmptyView()
                     }
             } else if state.isLoading {
                 ProgressView()
@@ -319,14 +325,22 @@ struct ContentView: View {
                         let range = localStart..<localEnd
                         if let existing = state.highlightState.find(blockIndex: blockIndex, textIndex: textIndex, range: range) {
                             // Already highlighted → just open note editor
-                            editingHighlight = existing
-                            showNoteEditor = true
+                            noteEditorController.show(
+                                highlightID: existing.id,
+                                initialNote: existing.note
+                            ) { id, note in
+                                state.updateHighlightNote(id: id, note: note)
+                            }
                         } else {
                             // New highlight → create it AND open note editor
                             let newHighlight = state.toggleHighlight(blockIndex: blockIndex, textIndex: textIndex, range: range)
                             if let newHighlight {
-                                editingHighlight = newHighlight
-                                showNoteEditor = true
+                                noteEditorController.show(
+                                    highlightID: newHighlight.id,
+                                    initialNote: nil
+                                ) { id, note in
+                                    state.updateHighlightNote(id: id, note: note)
+                                }
                             }
                         }
                     }

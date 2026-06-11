@@ -3,6 +3,7 @@ import SwiftUI
 struct FileBrowserSidebar: View {
     @Bindable var state: MarkdownReaderState
     let onSelect: (URL) -> Void
+    var onEditHighlightNote: (Highlight) -> Void
 
     var body: some View {
         switch state.openMode {
@@ -34,7 +35,7 @@ struct FileBrowserSidebar: View {
                         BookmarkSidebarSection(state: state)
                         HighlightSidebarSection(
                             state: state,
-                            onEditNote: { _ in },
+                            onEditNote: onEditHighlightNote,
                             onRemove: { id in
                                 state.highlightState.remove(id: id)
                                 state.saveHighlights()
@@ -62,7 +63,7 @@ struct FileBrowserSidebar: View {
             BookmarkSidebarSection(state: state)
             HighlightSidebarSection(
                 state: state,
-                onEditNote: { _ in },
+                onEditNote: onEditHighlightNote,
                 onRemove: { id in
                     state.highlightState.remove(id: id)
                     state.saveHighlights()

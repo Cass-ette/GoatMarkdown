@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 struct NoteEditorSheet: View {
     let highlightID: UUID
@@ -17,49 +18,111 @@ struct NoteEditorSheet: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Note")
-                .font(.headline)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Note")
+                    .font(.system(size: 13, weight: .semibold))
+                Spacer()
+                Text("\(text.count)/\(Self.maxNoteLength)")
+                    .font(.system(size: 10))
+                    .foregroundStyle(text.count >= Self.maxNoteLength ? .red : .secondary)
+                    .monospacedDigit()
+            }
 
             TextEditor(text: $text)
-                .font(.body)
+                .font(.system(size: 12))
+                .scrollContentBackground(.hidden)
+                .padding(6)
                 .frame(minHeight: 80, maxHeight: 120)
-                .border(Color.secondary.opacity(0.3))
+                .background(Color(nsColor: .textBackgroundColor))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 4)
+                        .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
+                )
                 .onChange(of: text) { _, newValue in
                     if newValue.count > Self.maxNoteLength {
                         text = String(newValue.prefix(Self.maxNoteLength))
                     }
                 }
 
-            Text("\(text.count)/\(Self.maxNoteLength)")
-                .font(.caption)
-                .foregroundStyle(text.count >= Self.maxNoteLength ? .red : .secondary)
-
-            HStack {
+            HStack(spacing: 6) {
                 if !initialNote.isEmpty {
-                    Button("Delete Note", role: .destructive) {
+                    Button("Delete") {
                         onSave(highlightID, nil)
-                        isPresented = false
+                        closeWindow()
                     }
+                    .controlSize(.small)
                 }
                 Spacer()
                 Button("Cancel") {
-                    isPresented = false
+                    closeWindow()
                 }
+                .controlSize(.small)
                 .keyboardShortcut(.cancelAction)
                 Button("Save") {
                     let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
                     onSave(highlightID, trimmed.isEmpty ? nil : trimmed)
-                    isPresented = false
+                    closeWindow()
                 }
+                .controlSize(.small)
                 .keyboardShortcut(.defaultAction)
                 .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && initialNote.isEmpty)
             }
         }
-        .padding()
-        .frame(width: 320)
+        .padding(16)
+        .frame(width: 320, height: 220)
+        .background(Color(nsColor: .windowBackgroundColor))
         .onAppear {
             text = initialNote
         }
+    }
+
+    private func closeWindow() {
+        if let window = NSApp.keyWindow {
+            if let sheet = window.attachedSheet {
+                window.endSheet(sheet)
+            } else {
+                window.close()
+            }
+        }
+        isPresented = false
+    }
+}
+
+final class NoteEditorWindowController: NSObject, NSWindowDelegate {
+    private var window: NSWindow?
+
+    func show(highlightID: UUID, initialNote: String?, onSave: @escaping (UUID, String?) -> Void) {
+        let view = NoteEditorSheet(
+            highlightID: highlightID,
+            isPresented: .constant(true),
+            initialNote: initialNote,
+            onSave: onSave
+        )
+        let host = NSHostingController(rootView: view)
+        let win = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 220),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        win.contentViewController = host
+        win.title = "Note"
+        win.isReleasedWhenClosed = false
+        win.delegate = self
+        win.center()
+
+        if let mainWindow = NSApp.keyWindow {
+            mainWindow.beginSheet(win) { _ in
+                win.orderOut(nil)
+            }
+        } else {
+            win.makeKeyAndOrderFront(nil)
+        }
+        self.window = win
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        window = nil
     }
 }
